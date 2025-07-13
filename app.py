@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import re
-from bs4 import BeautifulSoup
+from beautifulsoup4 import BeautifulSoup
 import threading
 import json
 from apis import OllamaAPI
