@@ -1,0 +1,86 @@
+### __Spec Sheet: Mokuro Translator__
+
+__1. Introduction__
+
+This document outlines the design and specifications for the Mokuro Translator, a Python application with a graphical user interface (GUI). The application will translate the text content of `<p>` tags within HTML files from a chosen language to English using a user-selected Ollama model.
+
+__2. Core Functionality__
+
+- __File Handling:__
+
+  - The application will look for `.html` files in an `input` directory, located in the same directory as the application.
+  - Translated files will be saved in an `output` directory, also in the application's root.
+  - The `input` and `output` directories will be created automatically if they do not exist.
+
+- __HTML Parsing and Processing:__
+
+  - The application will use the `BeautifulSoup4` library to parse HTML files.
+  - It will identify and extract the text content from all `<p>` tags.
+
+- __Translation via Ollama:__
+
+  - The application will interface with a locally running Ollama instance.
+  - For each piece of text extracted from a `<p>` tag, it will send a translation request to the user-selected Ollama model.
+  - The prompt sent to the Ollama model will be: `"Translate this text to English. Keep the translation inside quotation marks and your commentary outside the quotation marks."`
+
+- __Response Handling:__
+
+  - The application will parse the response from the Ollama model.
+  - It will use regular expressions to extract only the text enclosed in quotation marks (`"`). Any other text or commentary from the model will be discarded.
+
+- __HTML Content Replacement:__
+  - The original text within each `<p>` tag will be replaced with the extracted English translation.
+
+- __Output:__
+  - The modified HTML content will be saved as a new file in the `output` directory. The filename will be identical to the original input file.
+
+__3. Graphical User Interface (GUI)__
+
+The GUI will be built using the `tkinter` library, which is part of the Python standard library.
+
+- __Main Window:__
+
+  - A single, non-resizable window will serve as the main interface.
+  - The window title will be "Mokuro Translator".
+
+- __Ollama Model Selection:__
+
+  - A dropdown menu will allow the user to select the Ollama model to be used for translation.
+  - The list of available models will be fetched from the local Ollama instance at startup.
+
+- __Source Language Selection:__
+    - A dropdown menu will allow the user to select the source language.
+    - The available languages will be Japanese, Korean, and Thai.
+
+- __"Start Translation" Button:__
+
+  - A button labeled "Start Translation" will initiate the translation process.
+  - The button will be disabled during the translation process to prevent multiple concurrent operations.
+
+- __Progress Bar:__
+
+  - A progress bar will be displayed below the "Start Translation" button.
+  - It will provide real-time feedback on the progress of the translation, updating for each file and/or each `<p>` tag processed.
+
+- __Status Display:__
+  - A text label will show the current status of the application (e.g., "Ready", "Translating `file.html`...", "Translation complete").
+
+__4. Dependencies__
+
+The following Python libraries will be required:
+
+- `beautifulsoup4`
+- `ollama`
+- `lxml` (for parsing)
+
+__5. Workflow__
+
+1. The user launches the application.
+2. The application fetches the list of available Ollama models and populates the dropdown menu.
+3. The user selects the desired Ollama model from the dropdown.
+4. The user selects the source language from the dropdown.
+5. The user places one or more `.html` files in the `input` directory.
+6. The user clicks the "Start Translation" button.
+7. The application scans the `input` directory for `.html` files.
+8. For each file found: a. The progress bar and status label are updated. b. The HTML is parsed. c. Text from `<p>` tags is extracted. d. Each piece of text is concatenated with others within the same textbox group and sent to the selected Ollama model for translation. e. The response is parsed to get the translated text. f. The original text in the HTML is replaced with the translation. g. The modified HTML is saved to the `output` directory.
+9. Once all files are processed, the status label indicates completion, and the "Start Translation" button is re-enabled.

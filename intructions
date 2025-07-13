@@ -1,0 +1,19 @@
+Requirements:
+
+Ollama installed and background/server process running. Change apis.py if you've modified your ollama api
+
+Raw comic image files and an html file containing OCR data for each page in a specific format. Really just use mokuro and it'll make the html file for you.
+
+Instructions:
+
+1. Download and install Mokuro via git clone
+
+2. git clone this repo
+
+3. run mokuro by using the terminal command "mokuro {insert/path/to/comic/pages/folder/here}
+
+4. put the html file that mokuro gives you in this repo's "input" folder
+
+5. run this repo's "app.py" and use the GUI to choose your favorite ollama model for translation. I recommend you use "ollama run hf.co/mradermacher/RpR-v4-Fast-30B-A3B" and try that model. I've tested it with 4bit or Q4 quant. System prompt is currently in apis.py
+
+6. put the html file that showed up in this repo's "output" folder somewhere that has a copy of the folder of images you used for mokuro, this folder must be in the same directory as the html file.
