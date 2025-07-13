@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import re
-from beautifulsoup4 import BeautifulSoup
+from bs4 import BeautifulSoup
 import threading
 import json
 from apis import OllamaAPI
@@ -286,7 +286,7 @@ function applySmartFontScaling() {
         
         // Start with current font size or default
         let fontSize = parseInt(window.getComputedStyle(paragraph).fontSize) || 16;
-        const minFontSize = 16;  // Minimum font size to prevent too small text
+        const minFontSize = 8;
         const maxFontSize = 60;
         
         // Binary search for optimal font size
@@ -448,13 +448,12 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
 
 /* Enhanced constrain text feature with smart font scaling */
 .constrain-text .textBox {
-    overflow: visible;
+    overflow: hidden;
 }
 
 .constrain-text .textBox p { 
     white-space: normal;
     word-wrap: break-word;
-    word-break: break-word;
     overflow-wrap: break-word;
     hyphens: auto;
     line-height: 1.1em;
