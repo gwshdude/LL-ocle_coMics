@@ -14,8 +14,9 @@ LL-ocle_coMics is licensed under the UNLICENSE. See `LICENSE.md` for license inf
 ### Requirements
 
 1. [Ollama](https://ollama.com/download)
-2. [Mokuro](https://github.com/kha-white/mokuro) Python module or `pip install mokuro`
-3. This module
+2. A LLM capable of translating Japanese to English ([RpR-v4-Fast-30B-A3B](hf.co/mradermacher/RpR-v4-Fast-30B-A3B) is recommended)
+3. [Mokuro](https://github.com/kha-white/mokuro) Python module or `pip install mokuro`
+4. This module
 
 ### To Run
 
