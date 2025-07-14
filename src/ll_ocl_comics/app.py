@@ -1,13 +1,11 @@
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 import os
 import re
 from bs4 import BeautifulSoup
 import threading
-import json
 from apis import OllamaAPI
-from typing import Literal
 
 # Languages to translate from
 SOURCE_LANGUAGES = [
@@ -37,7 +35,14 @@ class MokuroTranslator(tk.Tk):
         self.translation_thread = None
 
         self.create_widgets()
-        self.populate_models()
+
+        # populate LLMs
+        try:
+            self.populate_models()
+        except:
+            self.model_name.set("Error fetching models")
+            messagebox.showerror("Error", f"Could not fetch Ollama models: {e}")
+        
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_closing(self):
@@ -83,28 +88,24 @@ class MokuroTranslator(tk.Tk):
         self.last_translation_label = ttk.Label(main_frame, text="Last Translation: ")
         self.last_translation_label.pack(fill="x", expand=True, pady=5)
 
-    def populate_models(self):
+    def populate_models(self) -> None:
+        connected, message = self.ollama_api.check_connection()
+        if not connected:
+            raise Exception(message)
+        
         try:
-            connected, message = self.ollama_api.check_connection()
-            if not connected:
-                raise Exception(message)
-
-            model_names, error = self.ollama_api.get_models()
-            if error:
-                raise Exception(error)
-
-            if model_names:
-                self.model_name.set(model_names[0])
-                menu = self.model_menu["menu"]
-                menu.delete(0, "end")
-                for name in model_names:
-                    menu.add_command(label=name, command=lambda value=name: self.model_name.set(value))
-            else:
-                self.model_name.set("No models found")
-                self.model_menu["menu"].delete(0, "end")
+            model_names = self.ollama_api.get_models()
         except Exception as e:
-            self.model_name.set("Error fetching models")
             messagebox.showerror("Error", f"Could not fetch Ollama models: {e}")
+        else:
+            if not model_names or len(model_names) < 1:
+                messagebox.showerror("Error", "Did not fetch any Ollama models.")
+
+        self.model_name.set(model_names[0])
+        menu = self.model_menu["menu"]
+        menu.delete(0, "end")
+        for name in model_names:
+            menu.add_command(label=name, command=lambda value=name: self.model_name.set(value))
 
     def start_translation_thread(self):
         thread = threading.Thread(target=self.start_translation)

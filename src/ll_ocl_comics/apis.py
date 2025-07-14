@@ -6,7 +6,12 @@ class OllamaAPI:
     def __init__(self, base_url="http://localhost:11434"):
         self.base_url = base_url
 
-    def check_connection(self):
+    def check_connection(self) -> tuple[bool, str]:
+        """_summary_
+
+        Returns:
+            tuple[bool, str]: Connection status, message
+        """
         try:
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             response.raise_for_status()
@@ -14,14 +19,16 @@ class OllamaAPI:
         except requests.exceptions.RequestException as e:
             return False, f"Failed to connect to Ollama at {self.base_url}. Is it running?"
 
-    def get_models(self):
-        try:
-            response = requests.get(f"{self.base_url}/api/tags")
-            response.raise_for_status()
-            models = [model['name'] for model in response.json().get('models', [])]
-            return models, None
-        except requests.exceptions.RequestException as e:
-            return [], str(e)
+    def get_models(self) -> list[str]:
+        """_summary_
+
+        Returns:
+            list[str]: list of names of models
+        """
+        response = requests.get(f"{self.base_url}/api/tags")
+        response.raise_for_status()
+        models = [model['name'] for model in response.json().get('models', [])]
+        return models, None
 
     def generate(self, model, prompt):
         try:
