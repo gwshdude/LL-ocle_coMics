@@ -1,8 +1,9 @@
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import re
-from beautifulsoup4 import BeautifulSoup
+from bs4 import BeautifulSoup
 import threading
 import json
 from apis import OllamaAPI
@@ -688,6 +689,10 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
             
         return boxes_processed
 
-if __name__ == "__main__":
+def main():
     app = MokuroTranslator()
     app.mainloop()
+
+if __name__ == "__main__":
+    main()
+    
