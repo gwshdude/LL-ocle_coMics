@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import re
-from beautifulsoup4 import BeautifulSoup
+from bs4 import BeautifulSoup
 import threading
 import json
 from apis import OllamaAPI
@@ -286,7 +286,7 @@ function applySmartFontScaling() {
         
         // Start with current font size or default
         let fontSize = parseInt(window.getComputedStyle(paragraph).fontSize) || 16;
-        const minFontSize = 16;  // Minimum font size to prevent too small text
+        const minFontSize = 18;
         const maxFontSize = 60;
         
         // Binary search for optimal font size
@@ -397,8 +397,33 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
         left_match = re.search(r'left:\s*(\d+)', style)
         top_match = re.search(r'top:\s*(\d+)', style)
         
+        # Enforce minimum width of 130 pixels
         if width_match:
-            text_box['data-box-width'] = width_match.group(1)
+            current_width = int(width_match.group(1))
+            if current_width < 130:
+                # Calculate the offset needed to center the wider box
+                width_increase = 130 - current_width
+                left_offset = width_increase // 2
+                
+                # Update the data attribute to minimum width
+                text_box['data-box-width'] = "130"
+                # Update the actual style width to minimum width
+                style = re.sub(r'width:\s*\d+', 'width:130', style)
+                
+                # Update left position to keep the box centered
+                if left_match:
+                    current_left = int(left_match.group(1))
+                    new_left = current_left - left_offset
+                    style = re.sub(r'left:\s*\d+', f'left:{new_left}', style)
+                    text_box['data-box-left'] = str(new_left)
+                
+                text_box['style'] = style
+                # Use the enforced width for calculations
+                width = 130
+            else:
+                text_box['data-box-width'] = width_match.group(1)
+                width = current_width
+        
         if height_match:
             text_box['data-box-height'] = height_match.group(1)
         if left_match:
@@ -408,7 +433,6 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
         
         # Calculate aspect ratio for better text fitting
         if width_match and height_match:
-            width = int(width_match.group(1))
             height = int(height_match.group(1))
             aspect_ratio = width / height if height > 0 else 1
             text_box['data-aspect-ratio'] = f"{aspect_ratio:.2f}"

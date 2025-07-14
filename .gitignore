@@ -208,3 +208,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# ignored my local input and output directory. GET YOUR OWN NERD!
+input
+output
