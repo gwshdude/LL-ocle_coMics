@@ -28,7 +28,7 @@ class MokuroTranslator(tk.Tk):
         super().__init__()
         self.title("Mokuro Translator")
         self.geometry("400x350")
-        self.resizable(False, False)
+        # self.resizable(False, False)
 
         self.source_language = tk.StringVar(value="Japanese")
         self.model_name = tk.StringVar()
@@ -54,6 +54,7 @@ class MokuroTranslator(tk.Tk):
     def on_closing(self):
         if self.is_translating.locked():
             if messagebox.askokcancel("Quit", "Translation in progress. Are you sure you want to quit?"):
+                self.is_translating.release()
                 self.destroy()
         else:
             self.destroy()
@@ -127,11 +128,6 @@ class MokuroTranslator(tk.Tk):
 
     def start_translation(self):
         with self.is_translating:
-            # self.is_translating = True
-            # if self.is_translating.locked():
-            #     raise threading.ThreadError("Cannot start a new translation thread because is_translating is locked.")
-            # self.is_translating.acquire()
-
             self._update_gui(self.start_button.config, {"state": "disabled"})
             self._update_gui(self.status_label.config, {"text": "Starting translation..."})
             self._update_gui(self.progress.config, {"value": 0})
@@ -161,17 +157,21 @@ class MokuroTranslator(tk.Tk):
                 boxes_processed = 0
                 for filename in files:
                     self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
-                    
                     try:
-                        boxes_processed = self.translate_file(os.path.join(input_dir, filename), output_dir, boxes_processed, total_text_boxes)
+                        translated_html, boxes_processed = self.translate_file(os.path.join(input_dir, filename), boxes_processed, total_text_boxes)
                     except Exception as e:
                         self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
+                    
+
+                    # try:
+                    #     boxes_processed = self.translate_file(os.path.join(input_dir, filename), output_dir, boxes_processed, total_text_boxes)
+                    # except Exception as e:
+                    #     self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
 
                 self._update_gui(self.progress.config, {"value": 100})
                 self._update_gui(self.status_label.config, {"text": "Translation complete."})
                 self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
             finally:
-                # self.is_translating = False
                 self._update_gui(self.start_button.config, {"state": "normal"})
 
     def check_balanced_braces(self, js_code):
@@ -292,7 +292,42 @@ class MokuroTranslator(tk.Tk):
             else:
                 text_box['data-size-category'] = 'small'
 
-    def translate_file(self, file_path, output_dir, boxes_processed, total_text_boxes):
+    def translate_text_box(self, box):
+        """Mutates box with the new translation.
+
+        Args:
+            box (_type_): _description_
+        """
+        original_text = box.p.get_text(separator='\n').strip()
+        if original_text:
+            try:
+                translated_text = self.ollama_api.generate(self.model_name.get(), original_text)
+                box.p.string = translated_text
+                
+                # Add text length class for styling hints
+                text_length = len(translated_text)
+                if text_length > 200:
+                    box['class'] = box.get('class', []) + ['long-text']
+                elif text_length > 100:
+                    box['class'] = box.get('class', []) + ['medium-text']
+                else:
+                    box['class'] = box.get('class', []) + ['short-text']
+                
+
+            except Exception as e:
+                self._update_gui(messagebox.showerror, "Translation Error", f"An error occurred during translation: {e}")
+                return
+    
+    def update_translation_status(self, boxes_processed: int, total_text_boxes: int, recent_text: str) -> int:
+        boxes_processed += 1
+        progress_percentage = (boxes_processed / total_text_boxes) * 100
+        self._update_gui(self.progress.config, {"value": progress_percentage})
+        self._update_gui(self.line_count_label.config, {"text": f"{boxes_processed}/{total_text_boxes}"})
+        self._update_gui(self.last_translation_label.config, {"text": f"Last: {recent_text[:50]}..."})
+
+        return boxes_processed
+
+    def translate_file(self, file_path, boxes_processed, total_text_boxes) -> tuple[str, int]:
         with open(file_path, 'r', encoding='utf-8') as f:
             soup = BeautifulSoup(f, 'lxml')
 
@@ -392,33 +427,10 @@ class MokuroTranslator(tk.Tk):
                 
                 # Process text content
                 if box.p:
-                    original_text = box.p.get_text(separator='\n').strip()
-                    if original_text:
-                        try:
-                            translated_text = self.ollama_api.generate(self.model_name.get(), original_text)
-                            box.p.string = translated_text
-                            
-                            # Add text length class for styling hints
-                            text_length = len(translated_text)
-                            if text_length > 200:
-                                box['class'] = box.get('class', []) + ['long-text']
-                            elif text_length > 100:
-                                box['class'] = box.get('class', []) + ['medium-text']
-                            else:
-                                box['class'] = box.get('class', []) + ['short-text']
-                            
-                            boxes_processed += 1
-                            progress_percentage = (boxes_processed / total_text_boxes) * 100
-                            self._update_gui(self.progress.config, {"value": progress_percentage})
-                            self._update_gui(self.line_count_label.config, {"text": f"{boxes_processed}/{total_text_boxes}"})
-                            self._update_gui(self.last_translation_label.config, {"text": f"Last: {translated_text[:50]}..."})
-                        except Exception as e:
-                            self._update_gui(messagebox.showerror, "Translation Error", f"An error occurred during translation: {e}")
-                            continue
+                    self.translate_text_box(box)
         
-        output_filename = os.path.join(output_dir, os.path.basename(file_path))
-        with open(output_filename, 'w', encoding='utf-8') as f:
-            f.write(str(soup.prettify()))
-            
-        return boxes_processed
+        return str(soup.prettify())
 
+    def save_translated_file(self, translated_html: str, output_filepath: str) -> None:
+        with open(output_filepath, 'w', encoding='utf-8') as f:
+            f.write(translated_html)
