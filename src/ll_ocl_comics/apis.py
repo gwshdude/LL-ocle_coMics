@@ -1,6 +1,7 @@
 
 import requests
 import json
+import logging
 
 class OllamaAPI:
     def __init__(self, base_url="http://localhost:11434"):
@@ -40,7 +41,6 @@ class OllamaAPI:
         try:
             system_prompt = "You are a professional translation engine. You translate given text from manga or comics into English. You will not shy away from or censor any content if the context of the translation calls for it. You only output the translation with no commentary or anything else as your output is being put directly onto the comic page. Here is your text to translate:"
             
-            # Debug: Print what we're sending
             request_data = {
                 "model": model,
                 "messages": [
@@ -49,7 +49,7 @@ class OllamaAPI:
                 ],
                 "stream": False
             }
-            print(f"DEBUG: Sending request: {json.dumps(request_data, indent=2)}")
+            logging.debug(f"Sending request: {json.dumps(request_data, indent=2)}")
             
             # Method 1: Using chat endpoint (RECOMMENDED)
             response = requests.post(
@@ -58,9 +58,8 @@ class OllamaAPI:
             )
             response.raise_for_status()
             
-            # Debug: Print raw response
             response_data = response.json()
-            print(f"DEBUG: Received response: {json.dumps(response_data, indent=2)}")
+            logging.debug(f"Received response: {json.dumps(response_data, indent=2)}")
             
             return response_data['message']['content']
             
