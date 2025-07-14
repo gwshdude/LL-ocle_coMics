@@ -125,11 +125,6 @@ class MokuroTranslator(tk.Tk):
         if self.winfo_exists():
             self.after(0, func, *args)
 
-    def start_translation_helper(self) -> None:
-        # TODO: get directory from user
-
-        self.start_translation()
-
     def start_translation(self):
         with self.is_translating:
             # self.is_translating = True
