@@ -53,8 +53,8 @@ function applySmartFontScaling() {
         
         // Get text box dimensions from style attribute
         const style = textBox.getAttribute('style');
-        const widthMatch = style.match(/width:\s*(\d+));
-        const heightMatch = style.match(/height:\s*(\d+));
+        const widthMatch = style.match("/width:\s*(\d+)");
+        const heightMatch = style.match("/height:\s*(\d+)");
         
         if (!widthMatch || !heightMatch) return;
         
