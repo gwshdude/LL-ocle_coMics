@@ -7,9 +7,21 @@ from bs4 import BeautifulSoup
 import threading
 import json
 from apis import OllamaAPI
+from typing import Literal
+
+# Languages to translate from
+SOURCE_LANGUAGES = [
+    "Japanese", "Japanese", "Korean", "Thai",
+]
 
 class MokuroTranslator(tk.Tk):
-    def __init__(self):
+    def __init__(self, ollama_base_url: str = "http://localhost:11434"):
+        """_summary_
+
+        Args:
+            ollama_base_url (str, optional): The base URL for all ollama requests.
+                Should include a port. Defaults to "http://localhost:11434".
+        """
         super().__init__()
         self.title("Mokuro Translator")
         self.geometry("400x350")
@@ -19,6 +31,8 @@ class MokuroTranslator(tk.Tk):
         self.model_name = tk.StringVar()
         
         self.ollama_api = OllamaAPI()
+        self.ollama_base_url = ollama_base_url
+
         self.is_translating = False
         self.translation_thread = None
 
@@ -41,7 +55,7 @@ class MokuroTranslator(tk.Tk):
         lang_frame = ttk.LabelFrame(main_frame, text="Source Language")
         lang_frame.pack(fill="x", expand=True, pady=5)
 
-        lang_menu = ttk.OptionMenu(lang_frame, self.source_language, "Japanese", "Japanese", "Korean", "Thai")
+        lang_menu = ttk.OptionMenu(lang_frame, *SOURCE_LANGUAGES)
         lang_menu.pack(fill="x", expand=True, padx=5, pady=5)
 
         # Ollama Model Selection
@@ -71,11 +85,6 @@ class MokuroTranslator(tk.Tk):
 
     def populate_models(self):
         try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-            
-            self.ollama_api.base_url = f"{config['ollama_host']}:{config['ollama_port']}"
-            
             connected, message = self.ollama_api.check_connection()
             if not connected:
                 raise Exception(message)
@@ -93,9 +102,6 @@ class MokuroTranslator(tk.Tk):
             else:
                 self.model_name.set("No models found")
                 self.model_menu["menu"].delete(0, "end")
-        except FileNotFoundError:
-            self.model_name.set("Config file not found")
-            messagebox.showerror("Error", "config.json not found. Please create it.")
         except Exception as e:
             self.model_name.set("Error fetching models")
             messagebox.showerror("Error", f"Could not fetch Ollama models: {e}")
