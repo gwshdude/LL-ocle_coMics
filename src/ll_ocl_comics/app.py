@@ -36,7 +36,8 @@ class MokuroTranslator(tk.Tk):
         self.ollama_api = OllamaAPI()
         self.ollama_base_url = ollama_base_url
 
-        self.is_translating = False
+        # self.is_translating = False
+        self.is_translating = threading.Lock()
         self.translation_thread = None
 
         self.create_widgets()
@@ -51,7 +52,7 @@ class MokuroTranslator(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_closing(self):
-        if self.is_translating:
+        if self.is_translating.locked():
             if messagebox.askokcancel("Quit", "Translation in progress. Are you sure you want to quit?"):
                 self.destroy()
         else:
@@ -124,49 +125,59 @@ class MokuroTranslator(tk.Tk):
         if self.winfo_exists():
             self.after(0, func, *args)
 
+    def start_translation_helper(self) -> None:
+        # TODO: get directory from user
+
+        self.start_translation()
+
     def start_translation(self):
-        self.is_translating = True
-        self._update_gui(self.start_button.config, {"state": "disabled"})
-        self._update_gui(self.status_label.config, {"text": "Starting translation..."})
-        self._update_gui(self.progress.config, {"value": 0})
+        with self.is_translating:
+            # self.is_translating = True
+            # if self.is_translating.locked():
+            #     raise threading.ThreadError("Cannot start a new translation thread because is_translating is locked.")
+            # self.is_translating.acquire()
 
-        try:
-            input_dir = "input"
-            output_dir = "output"
+            self._update_gui(self.start_button.config, {"state": "disabled"})
+            self._update_gui(self.status_label.config, {"text": "Starting translation..."})
+            self._update_gui(self.progress.config, {"value": 0})
 
-            if not os.path.exists(input_dir):
-                os.makedirs(input_dir)
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            try:
+                input_dir = "input"
+                output_dir = "output"
 
-            files = [f for f in os.listdir(input_dir) if f.endswith(".html")]
-            if not files:
-                self._update_gui(messagebox.showinfo, "Info", "No .html files found in the 'input' directory.")
-                return
+                if not os.path.exists(input_dir):
+                    os.makedirs(input_dir)
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
 
-            total_text_boxes = 0
-            for filename in files:
-                with open(os.path.join(input_dir, filename), 'r', encoding='utf-8') as f:
-                    soup = BeautifulSoup(f, 'lxml')
-                    total_text_boxes += len(soup.find_all('div', class_='textBox'))
+                files = [f for f in os.listdir(input_dir) if f.endswith(".html")]
+                if not files:
+                    self._update_gui(messagebox.showinfo, "Info", "No .html files found in the 'input' directory.")
+                    return
 
-            self._update_gui(self.line_count_label.config, {"text": f"0/{total_text_boxes}"})
+                total_text_boxes = 0
+                for filename in files:
+                    with open(os.path.join(input_dir, filename), 'r', encoding='utf-8') as f:
+                        soup = BeautifulSoup(f, 'lxml')
+                        total_text_boxes += len(soup.find_all('div', class_='textBox'))
 
-            boxes_processed = 0
-            for filename in files:
-                self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
-                
-                try:
-                    boxes_processed = self.translate_file(os.path.join(input_dir, filename), output_dir, boxes_processed, total_text_boxes)
-                except Exception as e:
-                    self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
+                self._update_gui(self.line_count_label.config, {"text": f"0/{total_text_boxes}"})
 
-            self._update_gui(self.progress.config, {"value": 100})
-            self._update_gui(self.status_label.config, {"text": "Translation complete."})
-            self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
-        finally:
-            self.is_translating = False
-            self._update_gui(self.start_button.config, {"state": "normal"})
+                boxes_processed = 0
+                for filename in files:
+                    self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
+                    
+                    try:
+                        boxes_processed = self.translate_file(os.path.join(input_dir, filename), output_dir, boxes_processed, total_text_boxes)
+                    except Exception as e:
+                        self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
+
+                self._update_gui(self.progress.config, {"value": 100})
+                self._update_gui(self.status_label.config, {"text": "Translation complete."})
+                self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
+            finally:
+                # self.is_translating = False
+                self._update_gui(self.start_button.config, {"state": "normal"})
 
     def check_balanced_braces(self, js_code):
         """Check if JavaScript code has balanced braces"""
