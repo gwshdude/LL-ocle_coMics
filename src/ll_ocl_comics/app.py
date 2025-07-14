@@ -14,7 +14,7 @@ from mokuro_changes import (
 
 # Languages to translate from
 SOURCE_LANGUAGES = [
-    "Japanese", "Japanese", "Korean", "Thai",
+    "Japanese", "Korean", "Thai",
 ]
 
 class MokuroTranslator(tk.Tk):
