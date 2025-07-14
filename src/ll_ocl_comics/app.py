@@ -39,7 +39,7 @@ class MokuroTranslator(tk.Tk):
         # populate LLMs
         try:
             self.populate_models()
-        except:
+        except Exception as e:
             self.model_name.set("Error fetching models")
             messagebox.showerror("Error", f"Could not fetch Ollama models: {e}")
         
