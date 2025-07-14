@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import re
-from bs4 import BeautifulSoup
+from beautifulsoup4 import BeautifulSoup
 import threading
 import json
 from apis import OllamaAPI
@@ -219,7 +219,7 @@ class MokuroTranslator(tk.Tk):
             # Found the complete function
             function_end = pos
             
-            # Define the replacement function
+            # Define the replacement function with enhanced functionality
             update_properties_replacement = '''function updateProperties() {
     if (state.textBoxBorders) {
         r.style.setProperty('--textBoxBorderHoverColor', 'rgba(237, 28, 36, 0.3)');
@@ -254,10 +254,106 @@ class MokuroTranslator(tk.Tk):
     }
     if (state.constrainText) {
         pc.classList.add('constrain-text');
+        // Apply smart font scaling when constrain text is enabled
+        applySmartFontScaling();
     } else {
         pc.classList.remove('constrain-text');
+        // Reset font sizes when constrain text is disabled
+        resetFontSizes();
     }
-}'''
+}
+
+// Smart font scaling function
+function applySmartFontScaling() {
+    const textBoxes = document.querySelectorAll('.textBox');
+    textBoxes.forEach(textBox => {
+        const paragraph = textBox.querySelector('p');
+        if (!paragraph || !paragraph.textContent.trim()) return;
+        
+        // Get text box dimensions from style attribute
+        const style = textBox.getAttribute('style');
+        const widthMatch = style.match(/width:\s*(\d+)/);
+        const heightMatch = style.match(/height:\s*(\d+)/);
+        
+        if (!widthMatch || !heightMatch) return;
+        
+        const boxWidth = parseInt(widthMatch[1]);
+        const boxHeight = parseInt(heightMatch[1]);
+        
+        // Account for padding
+        const availableWidth = boxWidth - 4;
+        const availableHeight = boxHeight - 4;
+        
+        // Start with current font size or default
+        let fontSize = parseInt(window.getComputedStyle(paragraph).fontSize) || 16;
+        const minFontSize = 16;  // Minimum font size to prevent too small text
+        const maxFontSize = 60;
+        
+        // Binary search for optimal font size
+        let low = minFontSize;
+        let high = Math.min(fontSize, maxFontSize);
+        let bestSize = minFontSize;
+        
+        while (low <= high) {
+            const testSize = Math.floor((low + high) / 2);
+            paragraph.style.fontSize = testSize + 'px';
+            
+            // Force reflow to get accurate measurements
+            paragraph.offsetHeight;
+            
+            const textWidth = paragraph.scrollWidth;
+            const textHeight = paragraph.scrollHeight;
+            
+            if (textWidth <= availableWidth && textHeight <= availableHeight) {
+                bestSize = testSize;
+                low = testSize + 1;
+            } else {
+                high = testSize - 1;
+            }
+        }
+        
+        // Apply the best font size found
+        paragraph.style.fontSize = bestSize + 'px';
+        textBox.setAttribute('data-scaled-font-size', bestSize);
+    });
+}
+
+// Reset font sizes function
+function resetFontSizes() {
+    const textBoxes = document.querySelectorAll('.textBox');
+    textBoxes.forEach(textBox => {
+        const paragraph = textBox.querySelector('p');
+        if (paragraph) {
+            paragraph.style.fontSize = '';
+            textBox.removeAttribute('data-scaled-font-size');
+        }
+    });
+}
+
+// Measure text dimensions utility
+function measureTextDimensions(element) {
+    const rect = element.getBoundingClientRect();
+    return {
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        displayWidth: rect.width,
+        displayHeight: rect.height
+    };
+}
+
+// Debounced resize handler for responsive font scaling
+let resizeTimeout;
+function handleResize() {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        if (state.constrainText) {
+            applySmartFontScaling();
+        }
+    }, 250);
+}
+
+// Add resize listener
+window.addEventListener('resize', handleResize);'''
             
             # Replace the entire function
             new_js_code = (js_code[:function_start] + 
@@ -288,16 +384,60 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
         
         return re.sub(toggle_listener_pattern, r'\1' + new_listeners, js_code)
 
+    def enhance_text_box_attributes(self, text_box):
+        """Add data attributes to text boxes for JavaScript processing"""
+        if not text_box.has_attr('style'):
+            return
+            
+        style = text_box['style']
+        
+        # Extract dimensions from style attribute
+        width_match = re.search(r'width:\s*(\d+)', style)
+        height_match = re.search(r'height:\s*(\d+)', style)
+        left_match = re.search(r'left:\s*(\d+)', style)
+        top_match = re.search(r'top:\s*(\d+)', style)
+        
+        if width_match:
+            text_box['data-box-width'] = width_match.group(1)
+        if height_match:
+            text_box['data-box-height'] = height_match.group(1)
+        if left_match:
+            text_box['data-box-left'] = left_match.group(1)
+        if top_match:
+            text_box['data-box-top'] = top_match.group(1)
+        
+        # Calculate aspect ratio for better text fitting
+        if width_match and height_match:
+            width = int(width_match.group(1))
+            height = int(height_match.group(1))
+            aspect_ratio = width / height if height > 0 else 1
+            text_box['data-aspect-ratio'] = f"{aspect_ratio:.2f}"
+            
+            # Add size category based on area
+            area = width * height
+            if area > 50000:
+                text_box['data-size-category'] = 'large'
+            elif area > 10000:
+                text_box['data-size-category'] = 'medium'
+            else:
+                text_box['data-size-category'] = 'small'
+
     def translate_file(self, file_path, output_dir, boxes_processed, total_text_boxes):
         with open(file_path, 'r', encoding='utf-8') as f:
             soup = BeautifulSoup(f, 'lxml')
 
-        # Part 1: CSS Modifications
+        # Part 1: Enhanced CSS Modifications
         style_tag = soup.find('style')
         if style_tag:
             css = style_tag.string or ''
             
-            # Add new feature styles
+            # Modify default textBox p styles to enable text wrapping by default
+            css = css.replace(
+                'white-space: nowrap;',
+                'white-space: normal;\n    word-wrap: break-word;'
+            )
+            
+            # Add enhanced feature styles
             css += """
 
 /* Always show translation feature */
@@ -306,13 +446,133 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
     background-color: rgb(255, 255, 255);
 }
 
-/* Constrain text feature */
+/* Enhanced constrain text feature with smart font scaling */
+.constrain-text .textBox {
+    overflow: visible;
+}
+
 .constrain-text .textBox p { 
-    max-width: 100%; 
-    overflow: hidden; 
-    text-overflow: ellipsis;
-    word-wrap: break-word;
     white-space: normal;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    line-height: 1.1em;
+    margin: 0;
+    padding: 2px;
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+/* Text alignment options */
+.align-center .textBox p { 
+    text-align: center; 
+    align-items: center;
+    justify-content: center;
+}
+
+.align-top-center .textBox p { 
+    text-align: center; 
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.align-bottom .textBox p { 
+    align-items: flex-end;
+}
+
+.align-middle .textBox p { 
+    align-items: center;
+}
+
+/* Font scaling classes */
+.font-scaled .textBox p {
+    font-size: var(--scaled-font-size, 16pt) !important;
+}
+
+/* Improved text rendering */
+.textBox p {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Text length specific styles */
+.short-text .textBox p {
+    font-size: 1.1em;
+    line-height: 1.2em;
+}
+
+.medium-text .textBox p {
+    font-size: 1em;
+    line-height: 1.1em;
+}
+
+.long-text .textBox p {
+    font-size: 0.9em;
+    line-height: 1.05em;
+    letter-spacing: -0.02em;
+}
+
+/* Size category specific styles */
+.textBox[data-size-category="small"] p {
+    padding: 1px;
+    font-size: 0.85em;
+}
+
+.textBox[data-size-category="medium"] p {
+    padding: 2px;
+}
+
+.textBox[data-size-category="large"] p {
+    padding: 3px;
+    line-height: 1.15em;
+}
+
+/* Aspect ratio specific adjustments */
+.textBox[data-aspect-ratio] p {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+/* Wide boxes (aspect ratio > 2) */
+.textBox[data-aspect-ratio^="2."], 
+.textBox[data-aspect-ratio^="3."], 
+.textBox[data-aspect-ratio^="4."], 
+.textBox[data-aspect-ratio^="5."] {
+    /* Wide boxes get left-aligned text */
+}
+
+.textBox[data-aspect-ratio^="2."] p, 
+.textBox[data-aspect-ratio^="3."] p, 
+.textBox[data-aspect-ratio^="4."] p, 
+.textBox[data-aspect-ratio^="5."] p {
+    text-align: left;
+    justify-content: flex-start;
+    align-items: flex-start;
+}
+
+/* Tall boxes (aspect ratio < 0.5) */
+.textBox[data-aspect-ratio^="0.1"], 
+.textBox[data-aspect-ratio^="0.2"], 
+.textBox[data-aspect-ratio^="0.3"], 
+.textBox[data-aspect-ratio^="0.4"] {
+    /* Tall boxes get centered text */
+}
+
+.textBox[data-aspect-ratio^="0.1"] p, 
+.textBox[data-aspect-ratio^="0.2"] p, 
+.textBox[data-aspect-ratio^="0.3"] p, 
+.textBox[data-aspect-ratio^="0.4"] p {
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+    writing-mode: horizontal-tb;
 }
 """
             style_tag.string = css
@@ -382,21 +642,37 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
             
             script_tag.string = js_code
 
-        # Part 4: Translation and Finalization
+        # Part 4: Enhanced Text Box Processing and Translation
         page_containers = soup.find_all('div', class_='pageContainer')
         for container in page_containers:
             text_boxes = container.find_all('div', class_='textBox')
             for box in text_boxes:
+                # Remove vertical writing mode for better horizontal text display
                 if box.has_attr('style') and 'writing-mode' in box['style']:
                     style_attr = box['style']
                     new_style = re.sub(r'writing-mode\s*:\s*vertical-rl\s*;?', '', style_attr).strip()
                     box['style'] = new_style
+                
+                # Add data attributes for JavaScript processing
+                self.enhance_text_box_attributes(box)
+                
+                # Process text content
                 if box.p:
                     original_text = box.p.get_text(separator='\n').strip()
                     if original_text:
                         try:
                             translated_text = self.ollama_api.generate(self.model_name.get(), original_text)
                             box.p.string = translated_text
+                            
+                            # Add text length class for styling hints
+                            text_length = len(translated_text)
+                            if text_length > 200:
+                                box['class'] = box.get('class', []) + ['long-text']
+                            elif text_length > 100:
+                                box['class'] = box.get('class', []) + ['medium-text']
+                            else:
+                                box['class'] = box.get('class', []) + ['short-text']
+                            
                             boxes_processed += 1
                             progress_percentage = (boxes_processed / total_text_boxes) * 100
                             self._update_gui(self.progress.config, {"value": progress_percentage})
