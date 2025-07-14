@@ -33,9 +33,8 @@ class OllamaAPI:
         """
         response = requests.get(f"{self.base_url}/api/tags")
         response.raise_for_status()
-        models = [model['name'] for model in response.json().get('models', [])]
         
-        return models
+        return [model['name'] for model in response.json().get('models', [])]
 
     def generate(self, model, prompt):
         try:

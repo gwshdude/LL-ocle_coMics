@@ -100,7 +100,7 @@ class MokuroTranslator(tk.Tk):
     def populate_models(self) -> None:
         connected = self.ollama_api.check_connection()
         if not connected:
-            raise RuntimeError(f"Could not connect to Ollama.")
+            raise RuntimeError("Could not connect to Ollama.")
         
         try:
             model_names = self.ollama_api.get_models()
@@ -158,16 +158,10 @@ class MokuroTranslator(tk.Tk):
                 for filename in files:
                     self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
                     try:
-                        translated_html, boxes_processed = self.translate_file(os.path.join(input_dir, filename), boxes_processed, total_text_boxes)
+                        translated_html = self.translate_file(os.path.join(input_dir, filename), boxes_processed, total_text_boxes)
                     except Exception as e:
                         self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
                     
-
-                    # try:
-                    #     boxes_processed = self.translate_file(os.path.join(input_dir, filename), output_dir, boxes_processed, total_text_boxes)
-                    # except Exception as e:
-                    #     self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
-
                 self._update_gui(self.progress.config, {"value": 100})
                 self._update_gui(self.status_label.config, {"text": "Translation complete."})
                 self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
@@ -296,7 +290,7 @@ class MokuroTranslator(tk.Tk):
         """Mutates box with the new translation.
 
         Args:
-            box (_type_): _description_
+            box (_type_): Translated text
         """
         original_text = box.p.get_text(separator='\n').strip()
         if original_text:
@@ -312,22 +306,22 @@ class MokuroTranslator(tk.Tk):
                     box['class'] = box.get('class', []) + ['medium-text']
                 else:
                     box['class'] = box.get('class', []) + ['short-text']
-                
 
             except Exception as e:
                 self._update_gui(messagebox.showerror, "Translation Error", f"An error occurred during translation: {e}")
-                return
+                return ""
+            
+        return translated_text
     
     def update_translation_status(self, boxes_processed: int, total_text_boxes: int, recent_text: str) -> int:
-        boxes_processed += 1
         progress_percentage = (boxes_processed / total_text_boxes) * 100
         self._update_gui(self.progress.config, {"value": progress_percentage})
         self._update_gui(self.line_count_label.config, {"text": f"{boxes_processed}/{total_text_boxes}"})
         self._update_gui(self.last_translation_label.config, {"text": f"Last: {recent_text[:50]}..."})
 
-        return boxes_processed
+        return boxes_processed + 1
 
-    def translate_file(self, file_path, boxes_processed, total_text_boxes) -> tuple[str, int]:
+    def translate_file(self, file_path: os.PathLike, boxes_processed: int, total_text_boxes: int) -> str:
         with open(file_path, 'r', encoding='utf-8') as f:
             soup = BeautifulSoup(f, 'lxml')
 
@@ -427,7 +421,8 @@ class MokuroTranslator(tk.Tk):
                 
                 # Process text content
                 if box.p:
-                    self.translate_text_box(box)
+                    recent_text = self.translate_text_box(box)
+                    self.update_translation_status(boxes_processed, total_text_boxes, recent_text)
         
         return str(soup.prettify())
 
