@@ -6,7 +6,7 @@ import re
 from bs4 import BeautifulSoup
 import threading
 from apis import OllamaAPI
-from .mokuro_changes import (
+from mokuro_changes import (
     PROPERTIES_JS_FUNC, LISTENER_JS_FUNC,
     ALWAYS_SHOW_TRANSLATION_JS_FUNC, UPDATE_PAGE_JS_ORIGINAL,
     UPDATE_PAGE_JS_FUNC,
@@ -96,17 +96,19 @@ class MokuroTranslator(tk.Tk):
         self.last_translation_label.pack(fill="x", expand=True, pady=5)
 
     def populate_models(self) -> None:
-        connected, message = self.ollama_api.check_connection()
+        connected = self.ollama_api.check_connection()
         if not connected:
-            raise Exception(message)
+            raise RuntimeError(f"Could not connect to Ollama.")
         
         try:
             model_names = self.ollama_api.get_models()
         except Exception as e:
             messagebox.showerror("Error", f"Could not fetch Ollama models: {e}")
+            return
         else:
             if not model_names or len(model_names) < 1:
                 messagebox.showerror("Error", "Did not fetch any Ollama models.")
+                return
 
         self.model_name.set(model_names[0])
         menu = self.model_menu["menu"]
@@ -414,9 +416,3 @@ class MokuroTranslator(tk.Tk):
             
         return boxes_processed
 
-def main():
-    app = MokuroTranslator()
-    app.mainloop()
-
-if __name__ == "__main__":
-    main()
