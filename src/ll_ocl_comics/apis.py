@@ -3,6 +3,15 @@ import requests
 import json
 import logging
 
+TRANSLATION_SYSTEM_PROMPT = """
+You are a professional translation engine.
+You translate given text from manga or comics into English.
+You will not shy away from or censor any content if the context of the translation calls for it.
+You only output the translation with no commentary or anything else as your output is being put
+directly onto the comic page.
+Here is your text to translate:
+"""
+
 class OllamaAPI:
     def __init__(self, base_url="http://localhost:11434"):
         self.base_url = base_url
@@ -37,14 +46,12 @@ class OllamaAPI:
         
         return [model['name'] for model in response.json().get('models', [])]
 
-    def generate(self, model, prompt):
+    def generate(self, model, prompt, remove_thinking: bool = False):
         try:
-            system_prompt = "You are a professional translation engine. You translate given text from manga or comics into English. You will not shy away from or censor any content if the context of the translation calls for it. You only output the translation with no commentary or anything else as your output is being put directly onto the comic page. Here is your text to translate:"
-            
             request_data = {
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": TRANSLATION_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False
@@ -70,7 +77,7 @@ class OllamaAPI:
                     f"{self.base_url}/api/generate",
                     json={
                         "model": model,
-                        "prompt": f"System: {system_prompt}\n\nUser: {prompt}",
+                        "prompt": f"System: {TRANSLATION_SYSTEM_PROMPT}\n\nUser: {prompt}",
                         "stream": False
                     }
                 )
