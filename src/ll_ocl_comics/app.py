@@ -5,7 +5,6 @@ from tkinter import ttk, messagebox, filedialog
 import os
 import re
 from bs4 import BeautifulSoup
-import lxml
 import threading
 from apis import OllamaAPI
 from mokuro_changes import (
@@ -30,7 +29,6 @@ class MokuroTranslator(tk.Tk):
         super().__init__()
         self.title("Mokuro Translator")
         self.geometry("400x350")
-        # self.resizable(False, False)
 
         self.source_language = tk.StringVar(value="Japanese")
         self.model_name = tk.StringVar()
@@ -38,7 +36,6 @@ class MokuroTranslator(tk.Tk):
         self.ollama_api = OllamaAPI()
         self.ollama_base_url = ollama_base_url
 
-        # self.is_translating = False
         self.is_translating = threading.Lock()
         self.translation_thread = None
 
@@ -80,6 +77,13 @@ class MokuroTranslator(tk.Tk):
 
         self.model_menu = ttk.OptionMenu(model_frame, self.model_name, "Select a model")
         self.model_menu.pack(fill="x", expand=True, padx=5, pady=5)
+
+        # # Input directory
+        # in_dir_frame = ttk.LabelFrame(main_frame, text="Input Directory")
+        # in_dir_frame.pack(fill="x", expand=True, pady=5)
+
+        # # Output directory
+
 
         # Start Button
         self.start_button = ttk.Button(main_frame, text="Start Translation", command=self.start_translation_helper)
@@ -144,6 +148,7 @@ class MokuroTranslator(tk.Tk):
             output_dir: os.PathLike,
             total_text_boxes: int | str = "?"
         ):
+        # block until lock is available
         self.is_translating.acquire()
 
         self._update_gui(self.line_count_label.config, {"text": f"0/{total_text_boxes}"})
@@ -161,10 +166,16 @@ class MokuroTranslator(tk.Tk):
                 out_path = os.path.join(output_dir, filename)
                 self.save_translated_file(translated_html, out_path)
 
+        self._update_gui(self.progress.config, {"value": 100})
+        self._update_gui(self.status_label.config, {"text": "Translation complete."})
+        self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
+        self._update_gui(self.start_button.config, {"state": "normal"})
+
         self.is_translating.release()
 
-    def create_translation_thread(self, filepaths: os.PathLike, output_dir: os.PathLike, total_text_boxes: int | str = "?"):
-        return threading.Thread(target=self.start_translation, args=(filepaths, output_dir, total_text_boxes))
+    def start_translation_thread(self, filepaths: os.PathLike, output_dir: os.PathLike, total_text_boxes: int | str = "?"):
+        thread = threading.Thread(target=self.start_translation, args=(filepaths, output_dir, total_text_boxes))
+        thread.start()
 
     def start_translation_helper(self) -> None:
         input_dir = self.get_input_dir()
@@ -184,24 +195,32 @@ class MokuroTranslator(tk.Tk):
 
         total_text_boxes = self.count_text_boxes_in_files(input_files)
 
-        thread = self.create_translation_thread(input_files, output_dir, total_text_boxes)
-        
-        try:
-            thread.start()
-            thread.join()
-        except Exception as e:
-            logging.error(e)
-            self._update_gui(self.progress.config, {"value": 100})
-            self._update_gui(self.status_label.config, {"text": "Translation error."})
-            self._update_gui(messagebox.showinfo, "Error", "An error occurred while translating.")
-            self._update_gui(self.start_button.config, {"state": "normal"})
-        else:
-            self._update_gui(self.progress.config, {"value": 100})
-            self._update_gui(self.status_label.config, {"text": "Translation complete."})
-            self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
-            self._update_gui(self.start_button.config, {"state": "normal"})
+        self.start_translation_thread(input_files, output_dir, total_text_boxes)
+    
+    def update_translation_status(self, boxes_processed: int, total_text_boxes: int, recent_text: str) -> None:
+        """Updates the translation status widgets in the GUI.
+
+        Args:
+            boxes_processed (int): _description_
+            total_text_boxes (int): _description_
+            recent_text (str): _description_
+        """
+        progress_percentage = (boxes_processed / total_text_boxes) * 100
+        self._update_gui(self.progress.config, {"value": progress_percentage})
+        self._update_gui(self.line_count_label.config, {"text": f"{boxes_processed}/{total_text_boxes}"})
+        self._update_gui(self.last_translation_label.config, {"text": f"Last: {recent_text[:50]}..."})
 
     def translate_file(self, filepath: os.PathLike, boxes_processed: int, total_text_boxes: int) -> str:
+        """Returns the translation of all text in a file.
+
+        Args:
+            filepath (os.PathLike): _description_
+            boxes_processed (int): _description_
+            total_text_boxes (int): _description_
+
+        Returns:
+            str: _description_
+        """
         with open(filepath, 'r', encoding='utf-8') as f:
             soup = BeautifulSoup(f, 'lxml')
 
@@ -454,9 +473,3 @@ class MokuroTranslator(tk.Tk):
                 return ""
             
         return translated_text
-    
-    def update_translation_status(self, boxes_processed: int, total_text_boxes: int, recent_text: str) -> None:
-        progress_percentage = (boxes_processed / total_text_boxes) * 100
-        self._update_gui(self.progress.config, {"value": progress_percentage})
-        self._update_gui(self.line_count_label.config, {"text": f"{boxes_processed}/{total_text_boxes}"})
-        self._update_gui(self.last_translation_label.config, {"text": f"Last: {recent_text[:50]}..."})
