@@ -37,6 +37,8 @@ class MokuroTranslator(tk.Tk):
 
         self.input_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
+
+        self.thinking_anchor = tk.StringVar(value="<think>")
         
         self.ollama_api = OllamaAPI()
         self.ollama_base_url = ollama_base_url
@@ -80,6 +82,13 @@ class MokuroTranslator(tk.Tk):
 
         self.model_menu = ttk.OptionMenu(model_frame, self.model_name, "Select a model")
         self.model_menu.pack(fill="x", expand=True, padx=5, pady=5)
+
+        # Thinking block option
+        think_frame = ttk.LabelFrame(main_frame, text="LLM Thinking Block Indicator")
+        think_frame.pack(fill="x", expand=True, pady=5)
+
+        think_entry = ttk.Entry(think_frame, width=20, textvariable=self.thinking_anchor)
+        think_entry.pack(fill="x", expand=True, pady=10)
 
         # Input directory
         in_dir_frame = ttk.LabelFrame(main_frame, text="Input Directory")
@@ -168,7 +177,7 @@ class MokuroTranslator(tk.Tk):
             filename = os.path.basename(filepath)
             self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
             try:
-                translated_html = self.translate_file(filepath, boxes_processed, total_text_boxes)
+                translated_html = self.translate_file(filepath, boxes_processed, total_text_boxes, self.thinking_anchor.get())
             except Exception as e:
                 logging.error(e)
                 self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
