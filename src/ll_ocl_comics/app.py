@@ -6,12 +6,14 @@ import os
 import re
 from bs4 import BeautifulSoup
 import threading
+
 from apis import OllamaAPI
 from mokuro_changes import (
     PROPERTIES_JS_FUNC, LISTENER_JS_FUNC,
     ALWAYS_SHOW_TRANSLATION_JS_FUNC, UPDATE_PAGE_JS_ORIGINAL,
     UPDATE_PAGE_JS_FUNC,
 )
+from helpers import remove_between_anchors
 
 # Languages to translate from
 SOURCE_LANGUAGES = [
@@ -215,13 +217,21 @@ class MokuroTranslator(tk.Tk):
         self._update_gui(self.line_count_label.config, {"text": f"{boxes_processed}/{total_text_boxes}"})
         self._update_gui(self.last_translation_label.config, {"text": f"Last: {recent_text[:50]}..."})
 
-    def translate_file(self, filepath: os.PathLike, boxes_processed: int, total_text_boxes: int) -> str:
+    def translate_file(
+            self,
+            filepath: os.PathLike,
+            boxes_processed: int,
+            total_text_boxes: int,
+            anchor: str | None = "<think>"
+        ) -> str:
         """Returns the translation of all text in a file.
 
         Args:
             filepath (os.PathLike): _description_
             boxes_processed (int): _description_
             total_text_boxes (int): _description_
+            anchor (int | None): If anchor is present in the API response,
+                remove all text between the first 2 occurences of anchor.
 
         Returns:
             str: _description_
@@ -327,7 +337,11 @@ class MokuroTranslator(tk.Tk):
                 if box.p:
                     box_translation = self.translate_text_box(box)
                     boxes_processed += 1
-                    
+
+                    # remove text between "thinking" blocks, if provided
+                    if anchor is not None and anchor != "":
+                        box_translation = remove_between_anchors(box_translation, anchor)
+
                     box.p.string = box_translation
 
                     # Add text length class for styling hints

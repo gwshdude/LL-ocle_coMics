@@ -14,3 +14,7 @@ from .mokuro_changes import (
     UPDATE_PAGE_JS_ORIGINAL,
     UPDATE_PAGE_JS_FUNC,
 )
+
+from .helpers import (
+    remove_between_anchors,
+)
