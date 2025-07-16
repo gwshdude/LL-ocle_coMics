@@ -28,10 +28,13 @@ class MokuroTranslator(tk.Tk):
         """
         super().__init__()
         self.title("Mokuro Translator")
-        self.geometry("400x350")
+        self.resizable(True, True)
 
-        self.source_language = tk.StringVar(value="Japanese")
+        self.source_language = tk.StringVar(value=SOURCE_LANGUAGES[0])
         self.model_name = tk.StringVar()
+
+        self.input_dir = tk.StringVar()
+        self.output_dir = tk.StringVar()
         
         self.ollama_api = OllamaAPI()
         self.ollama_base_url = ollama_base_url
@@ -66,8 +69,6 @@ class MokuroTranslator(tk.Tk):
         lang_frame = ttk.LabelFrame(main_frame, text="Source Language")
         lang_frame.pack(fill="x", expand=True, pady=5)
 
-        # self.source_language = SOURCE_LANGUAGES[0]
-        self.source_language = tk.StringVar(value=SOURCE_LANGUAGES[0])
         lang_menu = ttk.OptionMenu(lang_frame, self.source_language, *SOURCE_LANGUAGES)
         lang_menu.pack(fill="x", expand=True, padx=5, pady=5)
 
@@ -78,12 +79,19 @@ class MokuroTranslator(tk.Tk):
         self.model_menu = ttk.OptionMenu(model_frame, self.model_name, "Select a model")
         self.model_menu.pack(fill="x", expand=True, padx=5, pady=5)
 
-        # # Input directory
-        # in_dir_frame = ttk.LabelFrame(main_frame, text="Input Directory")
-        # in_dir_frame.pack(fill="x", expand=True, pady=5)
+        # Input directory
+        in_dir_frame = ttk.LabelFrame(main_frame, text="Input Directory")
+        in_dir_frame.pack(fill="x", expand=True, pady=5)
 
-        # # Output directory
+        in_dir_button = ttk.Button(in_dir_frame, text="Select Input Directory", command=self.set_input_dir)
+        in_dir_button.pack(fill="x", expand=True, pady=10)
 
+        # Output directory
+        out_dir_frame = ttk.LabelFrame(main_frame, text="Output Directory")
+        out_dir_frame.pack(fill="x", expand=True, pady=5)
+
+        out_dir_button = ttk.Button(out_dir_frame, text="Select Output Directory", command=self.set_output_dir)
+        out_dir_button.pack(fill="x", expand=True, pady=10)
 
         # Start Button
         self.start_button = ttk.Button(main_frame, text="Start Translation", command=self.start_translation_helper)
@@ -124,11 +132,11 @@ class MokuroTranslator(tk.Tk):
         for name in model_names:
             menu.add_command(label=name, command=lambda value=name: self.model_name.set(value))
 
-    def get_input_dir(self) -> os.PathLike:
-        return filedialog.askdirectory(mustexist=True, title="Select File Input Path")
+    def set_input_dir(self) -> os.PathLike:
+        self.input_dir.set(filedialog.askdirectory(mustexist=True, title="Select File Input Path", initialdir=self.input_dir.get()))
 
-    def get_output_dir(self) -> os.PathLike:
-        return filedialog.askdirectory(mustexist=False, title="Select File Output Path")
+    def set_output_dir(self) -> os.PathLike:
+        self.output_dir.set(filedialog.askdirectory(mustexist=False, title="Select File Output Path", initialdir=self.output_dir.get()))
 
     def get_html_files(self, input_dir: os.PathLike) -> list[str]:
         return [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith(".html")]
@@ -174,28 +182,25 @@ class MokuroTranslator(tk.Tk):
         self.is_translating.release()
 
     def start_translation_thread(self, filepaths: os.PathLike, output_dir: os.PathLike, total_text_boxes: int | str = "?"):
-        thread = threading.Thread(target=self.start_translation, args=(filepaths, output_dir, total_text_boxes))
+        thread = threading.Thread(target=self.start_translation, args=(filepaths, self.output_dir.get(), total_text_boxes))
         thread.start()
 
     def start_translation_helper(self) -> None:
-        input_dir = self.get_input_dir()
-        output_dir = self.get_output_dir()
-
         self._update_gui(self.start_button.config, {"state": "disabled"})
         self._update_gui(self.status_label.config, {"text": "Starting translation..."})
         self._update_gui(self.progress.config, {"value": 0})
 
-        input_files = self.get_html_files(input_dir)
+        input_files = self.get_html_files(self.input_dir.get())
         if not input_files:
-            self._update_gui(messagebox.showinfo, "Info", f"No .html files found in {input_dir}.")
+            self._update_gui(messagebox.showinfo, "Info", f"No .html files found in {self.input_dir.get()}.")
             return
         
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        if not os.path.exists(self.output_dir.get()):
+            os.makedirs(self.output_dir.get())
 
         total_text_boxes = self.count_text_boxes_in_files(input_files)
 
-        self.start_translation_thread(input_files, output_dir, total_text_boxes)
+        self.start_translation_thread(input_files, self.output_dir.get(), total_text_boxes)
     
     def update_translation_status(self, boxes_processed: int, total_text_boxes: int, recent_text: str) -> None:
         """Updates the translation status widgets in the GUI.
@@ -321,6 +326,8 @@ class MokuroTranslator(tk.Tk):
                 # Process text content
                 if box.p:
                     box_translation = self.translate_text_box(box)
+                    boxes_processed += 1
+                    
                     box.p.string = box_translation
 
                     # Add text length class for styling hints
@@ -333,7 +340,6 @@ class MokuroTranslator(tk.Tk):
                         box['class'] = box.get('class', []) + ['short-text']
 
                     self.update_translation_status(boxes_processed, total_text_boxes, box_translation)
-                    boxes_processed += 1
         
         return str(soup.prettify())
 
