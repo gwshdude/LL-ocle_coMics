@@ -46,7 +46,7 @@ class OllamaAPI:
         
         return [model['name'] for model in response.json().get('models', [])]
 
-    def generate(self, model, prompt, remove_thinking: bool = False):
+    def generate(self, model, prompt):
         try:
             request_data = {
                 "model": model,
@@ -69,7 +69,7 @@ class OllamaAPI:
             logging.debug(f"Received response: {json.dumps(response_data, indent=2)}")
             
             return response_data['message']['content']
-            
+        
         except requests.exceptions.RequestException as e:
             # Fallback: Try generate endpoint with different format
             try:

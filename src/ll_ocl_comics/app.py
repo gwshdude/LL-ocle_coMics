@@ -347,9 +347,8 @@ class MokuroTranslator(tk.Tk):
                     box_translation = self.translate_text_box(box)
                     boxes_processed += 1
 
-                    # remove text between "thinking" blocks, if provided
-                    if anchor is not None and anchor != "":
-                        box_translation = remove_between_anchors(box_translation, anchor)
+                    # remove text between "thinking" blocks
+                    box_translation = remove_between_anchors(box_translation, anchor)
 
                     box.p.string = box_translation
 
