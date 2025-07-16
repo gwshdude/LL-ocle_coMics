@@ -1,9 +1,11 @@
 
+import logging
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import os
 import re
 from bs4 import BeautifulSoup
+import lxml
 import threading
 from apis import OllamaAPI
 from mokuro_changes import (
@@ -80,7 +82,7 @@ class MokuroTranslator(tk.Tk):
         self.model_menu.pack(fill="x", expand=True, padx=5, pady=5)
 
         # Start Button
-        self.start_button = ttk.Button(main_frame, text="Start Translation", command=self.start_translation_thread)
+        self.start_button = ttk.Button(main_frame, text="Start Translation", command=self.start_translation_helper)
         self.start_button.pack(fill="x", expand=True, pady=10)
 
         # Progress Bar
@@ -118,55 +120,211 @@ class MokuroTranslator(tk.Tk):
         for name in model_names:
             menu.add_command(label=name, command=lambda value=name: self.model_name.set(value))
 
-    def start_translation_thread(self):
-        thread = threading.Thread(target=self.start_translation)
-        thread.start()
+    def get_input_dir(self) -> os.PathLike:
+        return filedialog.askdirectory(mustexist=True, title="Select File Input Path")
+
+    def get_output_dir(self) -> os.PathLike:
+        return filedialog.askdirectory(mustexist=False, title="Select File Output Path")
+
+    def get_html_files(self, input_dir: os.PathLike) -> list[str]:
+        return [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith(".html")]
+
+    def count_text_boxes_in_files(self, filenames: list[os.PathLike]) -> int:
+        total_text_boxes = 0
+        for filename in filenames:
+            with open(filename, 'r', encoding='utf-8') as f:
+                soup = BeautifulSoup(f, 'lxml')
+                total_text_boxes += len(soup.find_all('div', class_='textBox'))
+                
+        return total_text_boxes
+
+    def start_translation(
+            self,
+            filepaths: list[os.PathLike],
+            output_dir: os.PathLike,
+            total_text_boxes: int | str = "?"
+        ):
+        self.is_translating.acquire()
+
+        self._update_gui(self.line_count_label.config, {"text": f"0/{total_text_boxes}"})
+
+        boxes_processed = 0
+        for filepath in filepaths:
+            filename = os.path.basename(filepath)
+            self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
+            try:
+                translated_html = self.translate_file(filepath, boxes_processed, total_text_boxes)
+            except Exception as e:
+                logging.error(e)
+                self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
+            else:
+                out_path = os.path.join(output_dir, filename)
+                self.save_translated_file(translated_html, out_path)
+
+        self.is_translating.release()
+
+    def create_translation_thread(self, filepaths: os.PathLike, output_dir: os.PathLike, total_text_boxes: int | str = "?"):
+        return threading.Thread(target=self.start_translation, args=(filepaths, output_dir, total_text_boxes))
+
+    def start_translation_helper(self) -> None:
+        input_dir = self.get_input_dir()
+        output_dir = self.get_output_dir()
+
+        self._update_gui(self.start_button.config, {"state": "disabled"})
+        self._update_gui(self.status_label.config, {"text": "Starting translation..."})
+        self._update_gui(self.progress.config, {"value": 0})
+
+        input_files = self.get_html_files(input_dir)
+        if not input_files:
+            self._update_gui(messagebox.showinfo, "Info", f"No .html files found in {input_dir}.")
+            return
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        total_text_boxes = self.count_text_boxes_in_files(input_files)
+
+        thread = self.create_translation_thread(input_files, output_dir, total_text_boxes)
+        
+        try:
+            thread.start()
+            thread.join()
+        except Exception as e:
+            logging.error(e)
+            self._update_gui(self.progress.config, {"value": 100})
+            self._update_gui(self.status_label.config, {"text": "Translation error."})
+            self._update_gui(messagebox.showinfo, "Error", "An error occurred while translating.")
+            self._update_gui(self.start_button.config, {"state": "normal"})
+        else:
+            self._update_gui(self.progress.config, {"value": 100})
+            self._update_gui(self.status_label.config, {"text": "Translation complete."})
+            self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
+            self._update_gui(self.start_button.config, {"state": "normal"})
+
+    def translate_file(self, filepath: os.PathLike, boxes_processed: int, total_text_boxes: int) -> str:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            soup = BeautifulSoup(f, 'lxml')
+
+        # Part 1: Enhanced CSS Modifications
+        style_tag = soup.find('style')
+        if style_tag:
+            css = style_tag.string or ''
+            
+            # Modify default textBox p styles to enable text wrapping by default
+            css = css.replace(
+                'white-space: nowrap;',
+                'white-space: normal;\n    word-wrap: break-word;'
+            )
+            
+            # Add enhanced feature styles
+            css += ALWAYS_SHOW_TRANSLATION_JS_FUNC
+            style_tag.string = css
+
+        # Part 2: HTML Modifications - Add new menu options
+        dropdown_content = soup.find('div', class_='dropdown-content')
+        if dropdown_content:
+            # Find the toggle OCR text boxes option to insert after it
+            toggle_ocr_input = soup.find('input', id='menuToggleOCRTextBoxes')
+            if toggle_ocr_input:
+                toggle_ocr_label = toggle_ocr_input.parent
+                
+                # Add "Always show translation" option
+                always_show_label = soup.new_tag('label', **{'class': 'dropdown-option'})
+                always_show_label.string = 'Always show translation'
+                always_show_input = soup.new_tag('input', type='checkbox', id='menuAlwaysShowTranslation')
+                always_show_label.append(always_show_input)
+                
+                # Add "Constrain text" option  
+                constrain_label = soup.new_tag('label', **{'class': 'dropdown-option'})
+                constrain_label.string = 'Constrain text'
+                constrain_input = soup.new_tag('input', type='checkbox', id='menuConstrainText')
+                constrain_label.append(constrain_input)
+                
+                # Insert after existing toggle OCR option
+                toggle_ocr_label.insert_after(always_show_label)
+                always_show_label.insert_after(constrain_label)
+
+        # Part 3: JavaScript Modifications
+        script_tag = soup.find_all('script')[-1]
+        if script_tag and script_tag.string:
+            js_code = script_tag.string
+            original_js_length = len(js_code)
+
+            # Update defaultState - Add new properties without removing existing ones
+            js_code = re.sub(r'(toggleOCRTextBoxes\s*:\s*false,)',
+                             r'\1\n    alwaysShowTranslation: false,\n    constrainText: false,', js_code)
+
+            # Update updateUI - Add new checkbox updates
+            js_code = re.sub(r"(document\.getElementById\('menuToggleOCRTextBoxes'\)\.checked = state\.toggleOCRTextBoxes;)",
+                             r'\1\n    document.getElementById("menuAlwaysShowTranslation").checked = state.alwaysShowTranslation;\n    document.getElementById("menuConstrainText").checked = state.constrainText;', js_code)
+
+            # Remove initTextBoxes and its call using safe method
+            js_code = self.remove_init_text_boxes(js_code)
+            js_code = js_code.replace('initTextBoxes();', '')
+
+            # Add new event listeners using safe method
+            js_code = self.add_new_event_listeners(js_code)
+            
+            # Replace updateProperties function using safe method
+            js_code = self.replace_update_properties_function(js_code)
+
+            # Fix updatePage to show pages
+            js_code = js_code.replace(
+                UPDATE_PAGE_JS_ORIGINAL,
+                UPDATE_PAGE_JS_FUNC
+            )
+            
+            # Validate JavaScript syntax
+            if not self.check_balanced_braces(js_code):
+                self._update_gui(messagebox.showerror, "JavaScript Error", 
+                               f"Unbalanced braces detected in JavaScript for {os.path.basename(filepath)}. "
+                               f"Original length: {original_js_length}, New length: {len(js_code)}")
+                # Write debug file
+                with open(f'debug_js_{os.path.basename(filepath)}.js', 'w', encoding='utf-8') as f:
+                    f.write(js_code)
+            
+            script_tag.string = js_code
+
+        # Part 4: Enhanced Text Box Processing and Translation
+        page_containers = soup.find_all('div', class_='pageContainer')
+        for container in page_containers:
+            text_boxes = container.find_all('div', class_='textBox')
+            for box in text_boxes:
+                # Remove vertical writing mode for better horizontal text display
+                if box.has_attr('style') and 'writing-mode' in box['style']:
+                    style_attr = box['style']
+                    new_style = re.sub(r'writing-mode\s*:\s*vertical-rl\s*;?', '', style_attr).strip()
+                    box['style'] = new_style
+                
+                # Add data attributes for JavaScript processing
+                self.enhance_text_box_attributes(box)
+                
+                # Process text content
+                if box.p:
+                    box_translation = self.translate_text_box(box)
+                    box.p.string = box_translation
+
+                    # Add text length class for styling hints
+                    text_length = len(box_translation)
+                    if text_length > 200:
+                        box['class'] = box.get('class', []) + ['long-text']
+                    elif text_length > 100:
+                        box['class'] = box.get('class', []) + ['medium-text']
+                    else:
+                        box['class'] = box.get('class', []) + ['short-text']
+
+                    self.update_translation_status(boxes_processed, total_text_boxes, box_translation)
+                    boxes_processed += 1
+        
+        return str(soup.prettify())
+
+    def save_translated_file(self, translated_html: str, output_filepath: str) -> None:
+        with open(output_filepath, 'w', encoding='utf-8') as f:
+            f.write(translated_html)
 
     def _update_gui(self, func, *args):
         if self.winfo_exists():
             self.after(0, func, *args)
-
-    def start_translation(self):
-        with self.is_translating:
-            self._update_gui(self.start_button.config, {"state": "disabled"})
-            self._update_gui(self.status_label.config, {"text": "Starting translation..."})
-            self._update_gui(self.progress.config, {"value": 0})
-
-            try:
-                input_dir = "input"
-                output_dir = "output"
-
-                if not os.path.exists(input_dir):
-                    os.makedirs(input_dir)
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir)
-
-                files = [f for f in os.listdir(input_dir) if f.endswith(".html")]
-                if not files:
-                    self._update_gui(messagebox.showinfo, "Info", "No .html files found in the 'input' directory.")
-                    return
-
-                total_text_boxes = 0
-                for filename in files:
-                    with open(os.path.join(input_dir, filename), 'r', encoding='utf-8') as f:
-                        soup = BeautifulSoup(f, 'lxml')
-                        total_text_boxes += len(soup.find_all('div', class_='textBox'))
-
-                self._update_gui(self.line_count_label.config, {"text": f"0/{total_text_boxes}"})
-
-                boxes_processed = 0
-                for filename in files:
-                    self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
-                    try:
-                        translated_html = self.translate_file(os.path.join(input_dir, filename), boxes_processed, total_text_boxes)
-                    except Exception as e:
-                        self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
-                    
-                self._update_gui(self.progress.config, {"value": 100})
-                self._update_gui(self.status_label.config, {"text": "Translation complete."})
-                self._update_gui(messagebox.showinfo, "Success", "All pages have been translated.")
-            finally:
-                self._update_gui(self.start_button.config, {"state": "normal"})
 
     def check_balanced_braces(self, js_code):
         """Check if JavaScript code has balanced braces"""
@@ -286,146 +444,19 @@ class MokuroTranslator(tk.Tk):
             else:
                 text_box['data-size-category'] = 'small'
 
-    def translate_text_box(self, box):
-        """Mutates box with the new translation.
-
-        Args:
-            box (_type_): Translated text
-        """
+    def translate_text_box(self, box) -> str:
         original_text = box.p.get_text(separator='\n').strip()
         if original_text:
             try:
                 translated_text = self.ollama_api.generate(self.model_name.get(), original_text)
-                box.p.string = translated_text
-                
-                # Add text length class for styling hints
-                text_length = len(translated_text)
-                if text_length > 200:
-                    box['class'] = box.get('class', []) + ['long-text']
-                elif text_length > 100:
-                    box['class'] = box.get('class', []) + ['medium-text']
-                else:
-                    box['class'] = box.get('class', []) + ['short-text']
-
             except Exception as e:
                 self._update_gui(messagebox.showerror, "Translation Error", f"An error occurred during translation: {e}")
                 return ""
             
         return translated_text
     
-    def update_translation_status(self, boxes_processed: int, total_text_boxes: int, recent_text: str) -> int:
+    def update_translation_status(self, boxes_processed: int, total_text_boxes: int, recent_text: str) -> None:
         progress_percentage = (boxes_processed / total_text_boxes) * 100
         self._update_gui(self.progress.config, {"value": progress_percentage})
         self._update_gui(self.line_count_label.config, {"text": f"{boxes_processed}/{total_text_boxes}"})
         self._update_gui(self.last_translation_label.config, {"text": f"Last: {recent_text[:50]}..."})
-
-        return boxes_processed + 1
-
-    def translate_file(self, file_path: os.PathLike, boxes_processed: int, total_text_boxes: int) -> str:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            soup = BeautifulSoup(f, 'lxml')
-
-        # Part 1: Enhanced CSS Modifications
-        style_tag = soup.find('style')
-        if style_tag:
-            css = style_tag.string or ''
-            
-            # Modify default textBox p styles to enable text wrapping by default
-            css = css.replace(
-                'white-space: nowrap;',
-                'white-space: normal;\n    word-wrap: break-word;'
-            )
-            
-            # Add enhanced feature styles
-            css += ALWAYS_SHOW_TRANSLATION_JS_FUNC
-            style_tag.string = css
-
-        # Part 2: HTML Modifications - Add new menu options
-        dropdown_content = soup.find('div', class_='dropdown-content')
-        if dropdown_content:
-            # Find the toggle OCR text boxes option to insert after it
-            toggle_ocr_input = soup.find('input', id='menuToggleOCRTextBoxes')
-            if toggle_ocr_input:
-                toggle_ocr_label = toggle_ocr_input.parent
-                
-                # Add "Always show translation" option
-                always_show_label = soup.new_tag('label', **{'class': 'dropdown-option'})
-                always_show_label.string = 'Always show translation'
-                always_show_input = soup.new_tag('input', type='checkbox', id='menuAlwaysShowTranslation')
-                always_show_label.append(always_show_input)
-                
-                # Add "Constrain text" option  
-                constrain_label = soup.new_tag('label', **{'class': 'dropdown-option'})
-                constrain_label.string = 'Constrain text'
-                constrain_input = soup.new_tag('input', type='checkbox', id='menuConstrainText')
-                constrain_label.append(constrain_input)
-                
-                # Insert after existing toggle OCR option
-                toggle_ocr_label.insert_after(always_show_label)
-                always_show_label.insert_after(constrain_label)
-
-        # Part 3: JavaScript Modifications
-        script_tag = soup.find_all('script')[-1]
-        if script_tag and script_tag.string:
-            js_code = script_tag.string
-            original_js_length = len(js_code)
-
-            # Update defaultState - Add new properties without removing existing ones
-            js_code = re.sub(r'(toggleOCRTextBoxes\s*:\s*false,)',
-                             r'\1\n    alwaysShowTranslation: false,\n    constrainText: false,', js_code)
-
-            # Update updateUI - Add new checkbox updates
-            js_code = re.sub(r"(document\.getElementById\('menuToggleOCRTextBoxes'\)\.checked = state\.toggleOCRTextBoxes;)",
-                             r'\1\n    document.getElementById("menuAlwaysShowTranslation").checked = state.alwaysShowTranslation;\n    document.getElementById("menuConstrainText").checked = state.constrainText;', js_code)
-
-            # Remove initTextBoxes and its call using safe method
-            js_code = self.remove_init_text_boxes(js_code)
-            js_code = js_code.replace('initTextBoxes();', '')
-
-            # Add new event listeners using safe method
-            js_code = self.add_new_event_listeners(js_code)
-            
-            # Replace updateProperties function using safe method
-            js_code = self.replace_update_properties_function(js_code)
-
-            # Fix updatePage to show pages
-            js_code = js_code.replace(
-                UPDATE_PAGE_JS_ORIGINAL,
-                UPDATE_PAGE_JS_FUNC
-            )
-            
-            # Validate JavaScript syntax
-            if not self.check_balanced_braces(js_code):
-                self._update_gui(messagebox.showerror, "JavaScript Error", 
-                               f"Unbalanced braces detected in JavaScript for {os.path.basename(file_path)}. "
-                               f"Original length: {original_js_length}, New length: {len(js_code)}")
-                # Write debug file
-                with open(f'debug_js_{os.path.basename(file_path)}.js', 'w', encoding='utf-8') as f:
-                    f.write(js_code)
-            
-            script_tag.string = js_code
-
-        # Part 4: Enhanced Text Box Processing and Translation
-        page_containers = soup.find_all('div', class_='pageContainer')
-        for container in page_containers:
-            text_boxes = container.find_all('div', class_='textBox')
-            for box in text_boxes:
-                # Remove vertical writing mode for better horizontal text display
-                if box.has_attr('style') and 'writing-mode' in box['style']:
-                    style_attr = box['style']
-                    new_style = re.sub(r'writing-mode\s*:\s*vertical-rl\s*;?', '', style_attr).strip()
-                    box['style'] = new_style
-                
-                # Add data attributes for JavaScript processing
-                self.enhance_text_box_attributes(box)
-                
-                # Process text content
-                if box.p:
-                    recent_text = self.translate_text_box(box)
-                    self.update_translation_status(boxes_processed, total_text_boxes, recent_text)
-        
-        return str(soup.prettify())
-
-    def save_translated_file(self, translated_html: str, output_filepath: str) -> None:
-        with open(output_filepath, 'w', encoding='utf-8') as f:
-            f.write(translated_html)
