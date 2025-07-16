@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling", "hatch-requirements-txt"]
+build-backend = "hatchling.build"
+
+[tool.setuptools]
+packages = ["ll_ocl_comics"]
+
+[project]
+name = "ll_ocl_comics"
+version = "0.0.1"
+authors = [
+    { name="KyberCritter" },
+    { name="gwshdude" },
+]
+description = "PLACEHOLDER"
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "License :: OSI Approved :: Unlicense",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Users",
+    "Natural Language :: English",
+    "Topic :: File Formats :: JSON",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+dynamic = ["dependencies"]
+
+[project.urls]
+Homepage = "https://github.com/gwshdude/LL-ocle_coMics"
+Issues = "https://github.com/gwshdude/LL-ocle_coMics/issues"
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
+]
+
+[tool.hatch.metadata.hooks.requirements_txt]
+files = ["requirements.txt"]
