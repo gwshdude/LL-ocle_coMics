@@ -38,7 +38,7 @@ class MokuroTranslator(tk.Tk):
         self.input_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
 
-        self.thinking_anchor = tk.StringVar(value="<think>")
+        self.thinking_anchor = tk.StringVar(value="think")
         
         self.ollama_api = OllamaAPI()
         self.ollama_base_url = ollama_base_url
@@ -84,7 +84,7 @@ class MokuroTranslator(tk.Tk):
         self.model_menu.pack(fill="x", expand=True, padx=5, pady=5)
 
         # Thinking block option
-        think_frame = ttk.LabelFrame(main_frame, text="LLM Thinking Block Indicator")
+        think_frame = ttk.LabelFrame(main_frame, text="LLM Thinking Block Tag Name (without brackets)")
         think_frame.pack(fill="x", expand=True, pady=5)
 
         think_entry = ttk.Entry(think_frame, width=20, textvariable=self.thinking_anchor)
@@ -103,6 +103,19 @@ class MokuroTranslator(tk.Tk):
 
         out_dir_button = ttk.Button(out_dir_frame, text="Select Output Directory", command=self.set_output_dir)
         out_dir_button.pack(fill="x", expand=True, pady=10)
+
+        # System Prompt Configuration
+        prompt_frame = ttk.LabelFrame(main_frame, text="System Prompt")
+        prompt_frame.pack(fill="x", expand=True, pady=5)
+
+        prompt_buttons_frame = ttk.Frame(prompt_frame)
+        prompt_buttons_frame.pack(fill="x", expand=True, padx=5, pady=5)
+
+        change_prompt_button = ttk.Button(prompt_buttons_frame, text="Change", command=self.open_system_prompt_dialog)
+        change_prompt_button.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        default_prompt_button = ttk.Button(prompt_buttons_frame, text="Default", command=self.reset_to_default_prompt)
+        default_prompt_button.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
         # Start Button
         self.start_button = ttk.Button(main_frame, text="Start Translation", command=self.start_translation_helper)
@@ -177,7 +190,7 @@ class MokuroTranslator(tk.Tk):
             filename = os.path.basename(filepath)
             self._update_gui(self.status_label.config, {"text": f"Translating {filename}..."})
             try:
-                translated_html = self.translate_file(filepath, boxes_processed, total_text_boxes, self.thinking_anchor.get())
+                translated_html, boxes_processed = self.translate_file(filepath, boxes_processed, total_text_boxes, self.thinking_anchor.get())
             except Exception as e:
                 logging.error(e)
                 self._update_gui(messagebox.showerror, "Error", f"Failed to translate {filename}: {e}")
@@ -229,10 +242,10 @@ class MokuroTranslator(tk.Tk):
     def translate_file(
             self,
             filepath: os.PathLike,
-            boxes_processed: int,
+            boxes_processed_start: int,
             total_text_boxes: int,
-            anchor: str | None = "<think>"
-        ) -> str:
+            anchor: str | None = "think"
+        ) -> tuple[str, int]:
         """Returns the translation of all text in a file.
 
         Args:
@@ -329,6 +342,7 @@ class MokuroTranslator(tk.Tk):
             script_tag.string = js_code
 
         # Part 4: Enhanced Text Box Processing and Translation
+        boxes_processed = boxes_processed_start
         page_containers = soup.find_all('div', class_='pageContainer')
         for container in page_containers:
             text_boxes = container.find_all('div', class_='textBox')
@@ -350,7 +364,8 @@ class MokuroTranslator(tk.Tk):
                     # remove text between "thinking" blocks
                     box_translation = remove_between_anchors(box_translation, anchor)
 
-                    box.p.string = box_translation
+                    # SCORCHED EARTH: Completely clear and rebuild the text box content
+                    self.scorched_earth_clear_and_rebuild(box, box_translation)
 
                     # Add text length class for styling hints
                     text_length = len(box_translation)
@@ -363,15 +378,21 @@ class MokuroTranslator(tk.Tk):
 
                     self.update_translation_status(boxes_processed, total_text_boxes, box_translation)
         
-        return str(soup.prettify())
+        return str(soup.prettify()), boxes_processed
 
     def save_translated_file(self, translated_html: str, output_filepath: str) -> None:
         with open(output_filepath, 'w', encoding='utf-8') as f:
             f.write(translated_html)
 
-    def _update_gui(self, func, *args):
+    def _update_gui(self, func, *args, **kwargs):
         if self.winfo_exists():
-            self.after(0, func, *args)
+            try:
+                if kwargs:
+                    self.after(0, lambda: func(**kwargs))
+                else:
+                    self.after(0, func, *args)
+            except Exception as e:
+                logging.error(f"GUI update failed: {e}")
 
     def check_balanced_braces(self, js_code):
         """Check if JavaScript code has balanced braces"""
@@ -466,8 +487,33 @@ class MokuroTranslator(tk.Tk):
         left_match = re.search(r'left:\s*(\d+)', style)
         top_match = re.search(r'top:\s*(\d+)', style)
         
+        # Enforce minimum width of 130 pixels for better readability
         if width_match:
-            text_box['data-box-width'] = width_match.group(1)
+            current_width = int(width_match.group(1))
+            if current_width < 130:
+                # Calculate the offset needed to center the wider box
+                width_increase = 130 - current_width
+                left_offset = width_increase // 2
+                
+                # Update the data attribute to minimum width
+                text_box['data-box-width'] = "130"
+                # Update the actual style width to minimum width
+                style = re.sub(r'width:\s*\d+', 'width:130', style)
+                
+                # Update left position to keep the box centered
+                if left_match:
+                    current_left = int(left_match.group(1))
+                    new_left = current_left - left_offset
+                    style = re.sub(r'left:\s*\d+', f'left:{new_left}', style)
+                    text_box['data-box-left'] = str(new_left)
+                
+                text_box['style'] = style
+                # Use the enforced width for calculations
+                width = 130
+            else:
+                text_box['data-box-width'] = width_match.group(1)
+                width = current_width
+        
         if height_match:
             text_box['data-box-height'] = height_match.group(1)
         if left_match:
@@ -477,7 +523,6 @@ class MokuroTranslator(tk.Tk):
         
         # Calculate aspect ratio for better text fitting
         if width_match and height_match:
-            width = int(width_match.group(1))
             height = int(height_match.group(1))
             aspect_ratio = width / height if height > 0 else 1
             text_box['data-aspect-ratio'] = f"{aspect_ratio:.2f}"
@@ -491,6 +536,75 @@ class MokuroTranslator(tk.Tk):
             else:
                 text_box['data-size-category'] = 'small'
 
+    def scorched_earth_clear_and_rebuild(self, box, translation):
+        """Enhanced text replacement with complete original text removal"""
+        try:
+            # First, ensure complete removal of all original text content
+            self.ensure_complete_text_removal(box)
+            
+            # Find or create the paragraph element
+            p_tag = box.find('p')
+            if p_tag:
+                # Clear existing content and set new translation
+                p_tag.clear()
+                p_tag.string = translation
+            else:
+                # Create new paragraph if none exists - get soup from the document
+                soup = box.find_parent('html') or box.find_parent().find_parent()
+                if soup:
+                    p_tag = soup.new_tag('p')
+                    p_tag.string = translation
+                    box.append(p_tag)
+                else:
+                    logging.error("Could not find soup to create new tag")
+                
+        except Exception as e:
+            logging.error(f"Text replacement failed: {e}")
+            # Last resort: try to set text directly
+            try:
+                if hasattr(box, 'string'):
+                    box.string = translation
+            except:
+                logging.error("Complete text replacement failure")
+
+    def ensure_complete_text_removal(self, box):
+        """Ensure all original text is completely removed from text box"""
+        try:
+            # Remove all text nodes that aren't part of the new translation
+            for text_node in box.find_all(text=True):
+                if text_node.parent != box.find('p'):
+                    text_node.extract()
+            
+            # Remove any nested elements that might contain original text
+            for nested_element in box.find_all(['span', 'div', 'text', 'ruby', 'rt', 'rp']):
+                if nested_element != box.find('p'):
+                    nested_element.extract()
+            
+            # Clear any data attributes that might contain original text
+            if box.has_attr('data-original-text'):
+                del box['data-original-text']
+            if box.has_attr('title'):
+                del box['title']
+                
+        except Exception as e:
+            logging.error(f"Complete text removal failed: {e}")
+
+    def clear_text_box_content(self, box):
+        """Completely clear all text content from a text box to ensure no original text remains"""
+        # Clear the main paragraph element
+        if box.p:
+            box.p.clear()
+        
+        # Also clear any other text elements that might be present
+        for element in box.find_all(text=True):
+            if element.parent != box.p:  # Don't clear the p tag we just cleared
+                element.extract()
+        
+        # Remove any nested text elements or spans that might contain original text
+        for nested_element in box.find_all(['span', 'div', 'text']):
+            if nested_element != box.p:
+                nested_element.extract()
+
     def translate_text_box(self, box) -> str:
         original_text = box.p.get_text(separator='\n').strip()
         if original_text:
@@ -501,3 +615,98 @@ class MokuroTranslator(tk.Tk):
                 return ""
             
         return translated_text
+
+    def open_system_prompt_dialog(self):
+        """Open dialog to edit system prompt."""
+        dialog = SystemPromptDialog(self, self.ollama_api)
+        self.wait_window(dialog)
+
+    def reset_to_default_prompt(self):
+        """Reset system prompt to default."""
+        if messagebox.askyesno("Reset System Prompt", 
+                              "Are you sure you want to reset the system prompt to default? This will permanently remove any custom prompt."):
+            if self.ollama_api.reset_to_default_prompt():
+                messagebox.showinfo("Success", "System prompt has been reset to default.")
+            else:
+                messagebox.showerror("Error", "Failed to reset system prompt to default.")
+
+
+class SystemPromptDialog(tk.Toplevel):
+    def __init__(self, parent, ollama_api):
+        super().__init__(parent)
+        self.ollama_api = ollama_api
+        self.result = None
+        
+        self.title("Edit System Prompt")
+        self.geometry("600x400")
+        self.resizable(True, True)
+        
+        # Make dialog modal
+        self.transient(parent)
+        self.grab_set()
+        
+        # Center the dialog on parent
+        self.geometry(f"+{parent.winfo_rootx() + 50}+{parent.winfo_rooty() + 50}")
+        
+        self.create_widgets()
+        
+        # Load current system prompt
+        current_prompt = self.ollama_api.get_system_prompt()
+        self.text_area.delete(1.0, tk.END)
+        self.text_area.insert(1.0, current_prompt)
+        
+        # Focus on text area
+        self.text_area.focus_set()
+        
+        # Handle window close
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+
+    def create_widgets(self):
+        main_frame = ttk.Frame(self, padding="10")
+        main_frame.pack(fill="both", expand=True)
+        
+        # Instructions
+        instruction_label = ttk.Label(main_frame, 
+                                    text="Edit the system prompt that will be sent to the AI model:")
+        instruction_label.pack(anchor="w", pady=(0, 10))
+        
+        # Text area with scrollbar
+        text_frame = ttk.Frame(main_frame)
+        text_frame.pack(fill="both", expand=True, pady=(0, 10))
+        
+        self.text_area = tk.Text(text_frame, wrap="word", font=("Consolas", 10))
+        scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=self.text_area.yview)
+        self.text_area.configure(yscrollcommand=scrollbar.set)
+        
+        self.text_area.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill="x", pady=(10, 0))
+        
+        cancel_button = ttk.Button(button_frame, text="Cancel", command=self.cancel)
+        cancel_button.pack(side="right", padx=(10, 0))
+        
+        save_button = ttk.Button(button_frame, text="Save", command=self.save)
+        save_button.pack(side="right")
+
+    def save(self):
+        """Save the edited system prompt."""
+        new_prompt = self.text_area.get(1.0, tk.END).strip()
+        
+        if not new_prompt:
+            messagebox.showerror("Error", "System prompt cannot be empty.")
+            return
+        
+        if self.ollama_api.set_system_prompt(new_prompt):
+            messagebox.showinfo("Success", "System prompt has been saved.")
+            self.result = "saved"
+            self.destroy()
+        else:
+            messagebox.showerror("Error", "Failed to save system prompt.")
+
+    def cancel(self):
+        """Cancel editing and close dialog."""
+        self.result = "cancelled"
+        self.destroy()

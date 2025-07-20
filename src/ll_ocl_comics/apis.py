@@ -2,8 +2,10 @@
 import requests
 import json
 import logging
+import os
 
-TRANSLATION_SYSTEM_PROMPT = """
+# Default system prompt - kept as constant for "Default" button functionality
+DEFAULT_TRANSLATION_SYSTEM_PROMPT = """
 You are a professional translation engine.
 You translate given text from manga or comics into English.
 You will not shy away from or censor any content if the context of the translation calls for it.
@@ -15,6 +17,8 @@ Here is your text to translate:
 class OllamaAPI:
     def __init__(self, base_url="http://localhost:11434"):
         self.base_url = base_url
+        self.config_file = "mokuro_translator_config.json"
+        self.current_system_prompt = self._load_system_prompt()
 
     def check_connection(self) -> bool:
         """_summary_
@@ -46,12 +50,78 @@ class OllamaAPI:
         
         return [model['name'] for model in response.json().get('models', [])]
 
+    def _load_system_prompt(self):
+        """Load system prompt from config file, or use default if not found."""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    return config.get('system_prompt', DEFAULT_TRANSLATION_SYSTEM_PROMPT)
+        except (json.JSONDecodeError, IOError) as e:
+            logging.warning(f"Could not load config file: {e}. Using default system prompt.")
+        
+        return DEFAULT_TRANSLATION_SYSTEM_PROMPT
+    
+    def _save_system_prompt(self, prompt):
+        """Save system prompt to config file."""
+        try:
+            config = {}
+            if os.path.exists(self.config_file):
+                try:
+                    with open(self.config_file, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    config = {}
+            
+            config['system_prompt'] = prompt
+            
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            self.current_system_prompt = prompt
+            return True
+        except IOError as e:
+            logging.error(f"Could not save config file: {e}")
+            return False
+    
+    def get_system_prompt(self):
+        """Get the current system prompt."""
+        return self.current_system_prompt
+    
+    def set_system_prompt(self, prompt):
+        """Set a new system prompt and save it to config."""
+        return self._save_system_prompt(prompt)
+    
+    def reset_to_default_prompt(self):
+        """Reset system prompt to default and remove from config."""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                
+                # Remove system_prompt from config
+                if 'system_prompt' in config:
+                    del config['system_prompt']
+                
+                # Save updated config or delete file if empty
+                if config:
+                    with open(self.config_file, 'w', encoding='utf-8') as f:
+                        json.dump(config, f, indent=2, ensure_ascii=False)
+                else:
+                    os.remove(self.config_file)
+            
+            self.current_system_prompt = DEFAULT_TRANSLATION_SYSTEM_PROMPT
+            return True
+        except (json.JSONDecodeError, IOError) as e:
+            logging.error(f"Could not reset system prompt: {e}")
+            return False
+
     def generate(self, model, prompt):
         try:
             request_data = {
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": TRANSLATION_SYSTEM_PROMPT},
+                    {"role": "system", "content": self.current_system_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False
@@ -77,7 +147,7 @@ class OllamaAPI:
                     f"{self.base_url}/api/generate",
                     json={
                         "model": model,
-                        "prompt": f"System: {TRANSLATION_SYSTEM_PROMPT}\n\nUser: {prompt}",
+                        "prompt": f"System: {self.current_system_prompt}\n\nUser: {prompt}",
                         "stream": False
                     }
                 )

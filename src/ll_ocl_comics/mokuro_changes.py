@@ -1,5 +1,9 @@
 
 # JavaScript code to use in Mokuro
+# IMPORTANT: All JavaScript code below is stored in Python string literals.
+# This means backslashes need to be escaped (\\s becomes \s in JavaScript, \\d becomes \d).
+# Do NOT change regex patterns like /width:\\s*(\\d+)/ to /width:\s*(\d+)/ as this will
+# cause Python SyntaxWarnings due to invalid escape sequences in the Python string.
 PROPERTIES_JS_FUNC = """
 function updateProperties() {
     if (state.textBoxBorders) {
@@ -30,6 +34,8 @@ function updateProperties() {
     // New feature toggles
     if (state.alwaysShowTranslation) {
         pc.classList.add('always-show-translation');
+        // Update text background positioning after DOM is ready
+        setTimeout(updateTextBackgrounds, 0);
     } else {
         pc.classList.remove('always-show-translation');
     }
@@ -53,8 +59,9 @@ function applySmartFontScaling() {
         
         // Get text box dimensions from style attribute
         const style = textBox.getAttribute('style');
-        const widthMatch = style.match("/width:\s*(\d+)");
-        const heightMatch = style.match("/height:\s*(\d+)");
+        // NOTE: Double backslashes below are intentional - this JavaScript code lives inside a Python string,
+        const widthMatch = style.match(/width:\\s*(\\d+)/);
+        const heightMatch = style.match(/height:\\s*(\\d+)/);
         
         if (!widthMatch || !heightMatch) return;
         
@@ -135,6 +142,53 @@ function handleResize() {
 
 // Add resize listener
 window.addEventListener('resize', handleResize);
+
+// Function to update text background positioning and sizing
+function updateTextBackgrounds() {
+    if (!state.alwaysShowTranslation) return;
+    
+    const textBoxes = document.querySelectorAll('.always-show-translation .textBox');
+    textBoxes.forEach(textBox => {
+        const paragraph = textBox.querySelector('p');
+        if (!paragraph || !paragraph.textContent.trim()) return;
+        
+        // Force a reflow to get accurate measurements
+        paragraph.offsetHeight;
+        
+        // Get text dimensions
+        const textRect = paragraph.getBoundingClientRect();
+        const boxRect = textBox.getBoundingClientRect();
+        
+        // Calculate relative position within the textBox
+        const relativeLeft = textRect.left - boxRect.left;
+        const relativeTop = textRect.top - boxRect.top;
+        
+        // Add 5px extension in all directions
+        const backgroundLeft = relativeLeft - 5;
+        const backgroundTop = relativeTop - 5;
+        const backgroundWidth = textRect.width + 10; // 5px on each side
+        const backgroundHeight = textRect.height + 10; // 5px on each side
+        
+        // Apply styles to the ::after pseudo-element via CSS custom properties
+        textBox.style.setProperty('--text-bg-left', backgroundLeft + 'px');
+        textBox.style.setProperty('--text-bg-top', backgroundTop + 'px');
+        textBox.style.setProperty('--text-bg-width', backgroundWidth + 'px');
+        textBox.style.setProperty('--text-bg-height', backgroundHeight + 'px');
+    });
+}
+
+// Update text backgrounds when window resizes
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        if (state.constrainText) {
+            applySmartFontScaling();
+        }
+        if (state.alwaysShowTranslation) {
+            updateTextBackgrounds();
+        }
+    }, 250);
+});
 """
 
 LISTENER_JS_FUNC = """
@@ -152,10 +206,87 @@ document.getElementById('menuConstrainText').addEventListener('click', function 
 """
 
 ALWAYS_SHOW_TRANSLATION_JS_FUNC = """
-/* Always show translation feature */
+/* Always show translation feature - proper three-layer implementation */
+/* Layer 1: White box that fills the entire textBox bounds (outline fill) */
+.always-show-translation .textBox::before {
+    content: '' !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background-color: white !important;
+    z-index: 5 !important;
+    pointer-events: none !important;
+}
+
+/* Layer 2: White background behind text that extends 5px past text edges */
+.always-show-translation .textBox::after {
+    content: '' !important;
+    position: absolute !important;
+    background-color: white !important;
+    border-radius: 4px !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15) !important;
+    z-index: 8 !important;
+    pointer-events: none !important;
+    /* Size and position set by JavaScript based on text content */
+    left: var(--text-bg-left, 0) !important;
+    top: var(--text-bg-top, 0) !important;
+    width: var(--text-bg-width, 0) !important;
+    height: var(--text-bg-height, 0) !important;
+}
+
+/* Layer 3: Text content - preserve original positioning, no background */
 .always-show-translation .textBox p { 
-    display: table !important; 
-    background-color: rgb(255, 255, 255);
+    display: block !important;
+    background-color: transparent !important;
+    color: black !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    z-index: 10 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-weight: normal !important;
+    text-shadow: none !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    line-height: 1.3 !important;
+    text-rendering: optimizeLegibility !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    position: relative !important;
+}
+
+/* Text sizing for different lengths - no padding since background is separate */
+.always-show-translation .short-text .textBox p {
+    font-size: 1.1em !important;
+    line-height: 1.2em !important;
+}
+
+.always-show-translation .medium-text .textBox p {
+    font-size: 1em !important;
+    line-height: 1.1em !important;
+}
+
+.always-show-translation .long-text .textBox p {
+    font-size: 0.9em !important;
+    line-height: 1.05em !important;
+    letter-spacing: -0.02em !important;
+}
+
+/* Size category specific text sizing */
+.always-show-translation .textBox[data-size-category="small"] p {
+    font-size: 0.85em !important;
+}
+
+.always-show-translation .textBox[data-size-category="large"] p {
+    line-height: 1.15em !important;
+}
+
+/* Ensure translation text is always visible */
+.always-show-translation .textBox p * {
+    color: black !important;
 }
 
 /* Enhanced constrain text feature with smart font scaling */
