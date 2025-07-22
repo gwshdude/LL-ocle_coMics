@@ -421,4 +421,4 @@ ALWAYS_SHOW_TRANSLATION_JS_FUNC = """
 
 UPDATE_PAGE_JS_ORIGINAL = """getPage(state.page_idx).style.display = "none";"""
 
-UPDATE_PAGE_JS_FUNC = """// getPage(state.page_idx).style.display = "none";"""
+UPDATE_PAGE_JS_FUNC = """getPage(state.page_idx).style.display = "none";"""

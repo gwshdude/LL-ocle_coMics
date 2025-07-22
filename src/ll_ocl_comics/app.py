@@ -39,6 +39,7 @@ class MokuroTranslator(tk.Tk):
         self.output_dir = tk.StringVar()
 
         self.thinking_anchor = tk.StringVar(value="think")
+        self.context_length = tk.IntVar(value=0)
         
         self.ollama_api = OllamaAPI()
         self.ollama_base_url = ollama_base_url
@@ -89,6 +90,23 @@ class MokuroTranslator(tk.Tk):
 
         think_entry = ttk.Entry(think_frame, width=20, textvariable=self.thinking_anchor)
         think_entry.pack(fill="x", expand=True, pady=10)
+
+        # Textbox Context Length option
+        context_frame = ttk.LabelFrame(main_frame, text="Number of textboxes to use as context on either side (0 = no context)")
+        context_frame.pack(fill="x", expand=True, pady=5)
+
+        def validate_context_length(value):
+            if value == "":
+                return True
+            try:
+                num = int(value)
+                return num >= 0
+            except ValueError:
+                return False
+
+        vcmd = (self.register(validate_context_length), '%P')
+        context_entry = ttk.Entry(context_frame, width=20, textvariable=self.context_length, validate='key', validatecommand=vcmd)
+        context_entry.pack(fill="x", expand=True, pady=10)
 
         # Input directory
         in_dir_frame = ttk.LabelFrame(main_frame, text="Input Directory")
@@ -324,7 +342,7 @@ class MokuroTranslator(tk.Tk):
             # Replace updateProperties function using safe method
             js_code = self.replace_update_properties_function(js_code)
 
-            # Fix updatePage to show pages
+            # Restore proper page navigation (ensure pages are properly hidden/shown)
             js_code = js_code.replace(
                 UPDATE_PAGE_JS_ORIGINAL,
                 UPDATE_PAGE_JS_FUNC
@@ -344,6 +362,11 @@ class MokuroTranslator(tk.Tk):
         # Part 4: Enhanced Text Box Processing and Translation
         boxes_processed = boxes_processed_start
         page_containers = soup.find_all('div', class_='pageContainer')
+        
+        # Collect all textboxes and their texts for context processing
+        all_textboxes = []
+        all_textbox_texts = []
+        
         for container in page_containers:
             text_boxes = container.find_all('div', class_='textBox')
             for box in text_boxes:
@@ -356,27 +379,34 @@ class MokuroTranslator(tk.Tk):
                 # Add data attributes for JavaScript processing
                 self.enhance_text_box_attributes(box)
                 
-                # Process text content
-                if box.p:
-                    box_translation = self.translate_text_box(box)
-                    boxes_processed += 1
+                # Collect textbox and its text for context processing
+                all_textboxes.append(box)
+                textbox_text = self.extract_textbox_text(box)
+                all_textbox_texts.append(textbox_text)
+        
+        # Process each textbox with context awareness
+        for i, box in enumerate(all_textboxes):
+            if box.p:
+                # Use context-aware translation
+                box_translation = self.translate_text_box(box, all_textbox_texts, i)
+                boxes_processed += 1
 
-                    # remove text between "thinking" blocks
-                    box_translation = remove_between_anchors(box_translation, anchor)
+                # remove text between "thinking" blocks
+                box_translation = remove_between_anchors(box_translation, anchor)
 
-                    # SCORCHED EARTH: Completely clear and rebuild the text box content
-                    self.scorched_earth_clear_and_rebuild(box, box_translation)
+                # SCORCHED EARTH: Completely clear and rebuild the text box content
+                self.scorched_earth_clear_and_rebuild(box, box_translation)
 
-                    # Add text length class for styling hints
-                    text_length = len(box_translation)
-                    if text_length > 200:
-                        box['class'] = box.get('class', []) + ['long-text']
-                    elif text_length > 100:
-                        box['class'] = box.get('class', []) + ['medium-text']
-                    else:
-                        box['class'] = box.get('class', []) + ['short-text']
+                # Add text length class for styling hints
+                text_length = len(box_translation)
+                if text_length > 200:
+                    box['class'] = box.get('class', []) + ['long-text']
+                elif text_length > 100:
+                    box['class'] = box.get('class', []) + ['medium-text']
+                else:
+                    box['class'] = box.get('class', []) + ['short-text']
 
-                    self.update_translation_status(boxes_processed, total_text_boxes, box_translation)
+                self.update_translation_status(boxes_processed, total_text_boxes, box_translation)
         
         return str(soup.prettify()), boxes_processed
 
@@ -605,14 +635,103 @@ class MokuroTranslator(tk.Tk):
             if nested_element != box.p:
                 nested_element.extract()
 
-    def translate_text_box(self, box) -> str:
+    def get_context_window(self, textboxes, current_index, context_length):
+        """Calculate the actual available context for a given textbox position.
+        
+        Args:
+            textboxes: List of textbox elements
+            current_index: Index of current textbox being translated
+            context_length: Requested context length from GUI
+            
+        Returns:
+            tuple: (prev_contexts, current_textbox, future_contexts)
+        """
+        # Calculate actual available previous contexts
+        prev_start = max(0, current_index - context_length)
+        prev_contexts = textboxes[prev_start:current_index]
+        
+        # Calculate actual available future contexts  
+        future_end = min(len(textboxes), current_index + context_length + 1)
+        future_contexts = textboxes[current_index + 1:future_end]
+        
+        return prev_contexts, textboxes[current_index], future_contexts
+
+    def build_context_request(self, prev_contexts, current_text, future_contexts):
+        """Build the formatted request string with context markers.
+        
+        Args:
+            prev_contexts: List of previous textbox texts
+            current_text: Current textbox text to translate
+            future_contexts: List of future textbox texts
+            
+        Returns:
+            str: Formatted request string with context markers
+        """
+        request_parts = []
+        
+        # Add previous contexts (only if they exist)
+        for prev_text in prev_contexts:
+            if prev_text.strip():  # Only add non-empty contexts
+                request_parts.append(f"\\{prev_text.strip()}\\")
+        
+        # Add current text (always present)
+        request_parts.append(f"|{current_text.strip()}|")
+        
+        # Add future contexts (only if they exist)  
+        for future_text in future_contexts:
+            if future_text.strip():  # Only add non-empty contexts
+                request_parts.append(f"/{future_text.strip()}/")
+        
+        return " ".join(request_parts)
+
+    def extract_textbox_text(self, textbox):
+        """Extract text content from a textbox element.
+        
+        Args:
+            textbox: BeautifulSoup textbox element
+            
+        Returns:
+            str: Extracted text content
+        """
+        if textbox.p:
+            return textbox.p.get_text(separator='\n').strip()
+        return ""
+
+    def translate_text_box(self, box, context_texts=None, current_index=None) -> str:
+        """Translate a textbox with optional context.
+        
+        Args:
+            box: Current textbox element
+            context_texts: List of all textbox texts for context (optional)
+            current_index: Index of current textbox in context_texts (optional)
+            
+        Returns:
+            str: Translated text
+        """
         original_text = box.p.get_text(separator='\n').strip()
-        if original_text:
-            try:
-                translated_text = self.ollama_api.generate(self.model_name.get(), original_text)
-            except Exception as e:
-                self._update_gui(messagebox.showerror, "Translation Error", f"An error occurred during translation: {e}")
-                return ""
+        if not original_text:
+            return ""
+            
+        # Determine if we should use context
+        context_length = self.context_length.get()
+        
+        if context_length > 0 and context_texts is not None and current_index is not None:
+            # Use context-aware translation
+            prev_contexts, current_text, future_contexts = self.get_context_window(
+                context_texts, current_index, context_length
+            )
+            
+            # Build the context request
+            request_text = self.build_context_request(prev_contexts, current_text, future_contexts)
+        else:
+            # Use original stateless translation (context_length = 0)
+            request_text = original_text
+            
+        try:
+            translated_text = self.ollama_api.generate(self.model_name.get(), request_text)
+        except Exception as e:
+            self._update_gui(messagebox.showerror, "Translation Error", f"An error occurred during translation: {e}")
+            return ""
             
         return translated_text
 
