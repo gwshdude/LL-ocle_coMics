@@ -22,9 +22,16 @@ LL-ocle_coMics is licensed under the UNLICENSE. See `LICENSE.md` for license inf
 
 1. In your terminal, run `ollama serve` to start Ollama's background process.
 2. Use Mokuro to convert your image files into HTML files containing OCR data for each file.
-3. Copy the HTML files Mokuro generated to (TODO)
-4. TODO: directions on running this module with `python -m`
-5. TODO: explain how to replace the translated OCR file in the Mokuro folder
+3. Navigate to the folder that you cloned this repo to and go as deep in the src folder as you can until you see all the files
+4. `python -m venv venv`
+5. `source venv/bin/activate`
+6. `python main.py`
+7. Choose the input directory as the folder with the HTML file that mokuro generated, and choose any output directory you want
+8. Choose your ollama model. I recommend XortronCriminalComputingConfig. Run the biggest quant you can physically fit into your system if you're running over night.
+9. *OPTIONAL* Edit the prompt or supply additional context via dropping a text/md document into the RAG box.
+10. *OPTIONAL* Use the "Generate Model Story Context" button and then find the text document it produced in your output folder and drop that into the RAG box. (this option requires more memory than just doing translation. You may have to skip it if you don't have enough. It will take much longer than the progress bar makes it seem. I recommend both this option and the actual translation be run overnight or while you're at work, as it'll take a while.)
+11. Click "Start Translation"
+12. Enjoy
 
 ## Why do it this way?
 

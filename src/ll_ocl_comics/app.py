@@ -184,15 +184,25 @@ class MokuroTranslator(TkinterDnD.Tk):
         rag_frame = ttk.LabelFrame(main_frame, text="RAG Context Files (Drag & Drop)")
         rag_frame.pack(fill="x", expand=True, pady=5)
 
-        # Drop area
-        self.rag_drop_area = tk.Frame(rag_frame, bg="lightgray", relief="sunken", bd=2, height=80)
+        # Drop area with enhanced styling
+        self.rag_drop_area = tk.Frame(rag_frame, bg="#f0f0f0", relief="solid", bd=2, height=80)
         self.rag_drop_area.pack(fill="x", padx=5, pady=5)
         self.rag_drop_area.pack_propagate(False)
+        
+        # Configure dashed border style for drop area
+        self.rag_drop_area.config(highlightbackground="#cccccc", highlightcolor="#4a90e2", highlightthickness=2)
 
-        # Drop area label
-        self.rag_drop_label = tk.Label(self.rag_drop_area, text="Drop text files here for RAG context\n(Supports .txt, .md, .json files)", 
-                                      bg="lightgray", fg="gray", font=("Arial", 10))
+        # Drop area label with enhanced styling
+        self.rag_drop_label = tk.Label(self.rag_drop_area, 
+                                      text="📁 Drop text files here for RAG context\n(Supports .txt, .md, .json files)", 
+                                      bg="#f0f0f0", fg="#666666", font=("Arial", 10, "normal"),
+                                      justify="center")
         self.rag_drop_label.pack(expand=True)
+        
+        # Status indicator for visual feedback
+        self.rag_status_label = tk.Label(self.rag_drop_area, text="", 
+                                        bg="#f0f0f0", fg="#28a745", font=("Arial", 9, "bold"))
+        self.rag_status_label.pack()
 
         # Configure drag and drop
         self.rag_drop_area.drop_target_register(DND_FILES)
@@ -411,10 +421,30 @@ class MokuroTranslator(TkinterDnD.Tk):
         summary_thread = threading.Thread(target=self.generate_model_context_summary)
         summary_thread.start()
     
+    def update_summary_progress(self, phase_progress, status_text, estimated_time=None):
+        """Update progress bar and status for summary generation.
+        
+        Args:
+            phase_progress: Progress percentage (0-100)
+            status_text: Status message to display
+            estimated_time: Optional estimated time remaining in seconds
+        """
+        self._update_gui(self.progress.config, {"value": phase_progress})
+        
+        if estimated_time:
+            if estimated_time > 60:
+                time_str = f" (est. {estimated_time//60}m {estimated_time%60}s remaining)"
+            else:
+                time_str = f" (est. {estimated_time}s remaining)"
+            status_text += time_str
+        
+        self._update_gui(self.status_label.config, {"text": status_text})
+
     def generate_model_context_summary(self):
-        """Generate a comprehensive story summary from all textboxes."""
+        """Generate a comprehensive story summary from all textboxes with detailed progress tracking."""
         try:
-            # Get input files
+            # Phase 1: Get input files (0-5%)
+            self.update_summary_progress(0, "Scanning for HTML files...")
             input_files = self.get_html_files(self.input_dir.get())
             if not input_files:
                 self._update_gui(messagebox.showinfo, "Info", f"No .html files found in {self.input_dir.get()}.")
@@ -424,16 +454,18 @@ class MokuroTranslator(TkinterDnD.Tk):
             if not os.path.exists(self.output_dir.get()):
                 os.makedirs(self.output_dir.get())
             
-            # Collect all textboxes from all files
-            self._update_gui(self.status_label.config, {"text": "Collecting textboxes..."})
-            all_textboxes_data = self.collect_all_textboxes(input_files)
+            self.update_summary_progress(5, f"Found {len(input_files)} HTML files to process")
+            
+            # Phase 2: Collect all textboxes from all files (5-25%)
+            self.update_summary_progress(5, "Collecting textboxes from files...")
+            all_textboxes_data = self.collect_all_textboxes_with_progress(input_files)
             
             if not all_textboxes_data:
                 self._update_gui(messagebox.showinfo, "Info", "No textboxes found in the HTML files.")
                 return
             
-            # Format the request
-            self._update_gui(self.status_label.config, {"text": "Formatting request..."})
+            # Phase 3: Format the request (25-30%)
+            self.update_summary_progress(25, "Formatting request for AI model...")
             summary_request = self.format_summary_request(all_textboxes_data)
             
             # Check context length
@@ -445,25 +477,28 @@ class MokuroTranslator(TkinterDnD.Tk):
                                f"Request size ({estimated_tokens} tokens) exceeds context limit ({context_limit} tokens). "
                                f"Summary may be incomplete.")
             
-            # Generate summary
-            self._update_gui(self.status_label.config, {"text": "Generating summary with AI model..."})
-            self._update_gui(self.progress.config, {"value": 50})
+            self.update_summary_progress(30, f"Request formatted ({estimated_tokens} tokens)")
             
-            summary_system_prompt = "In English, output a markdown format summary of the story, and then a summary of each page."
+            # Phase 4: Generate summary with AI (30-85%)
+            # Estimate time based on token count (rough estimate: 10-20 tokens per second)
+            estimated_generation_time = max(30, estimated_tokens // 15)  # Conservative estimate
+            self.update_summary_progress(30, "Generating summary with AI model...", estimated_generation_time)
             
-            # Use a custom API call with the summary system prompt
-            summary_response = self.generate_summary_with_custom_prompt(summary_request, summary_system_prompt)
+            summary_system_prompt = "You are being given text from a manga or doujin. In English, first output a markdown format summary of the story as a whole, and then a detailed summary of each page."
             
-            # Save summary to file
-            self._update_gui(self.status_label.config, {"text": "Saving summary..."})
-            self._update_gui(self.progress.config, {"value": 90})
+            # Use a custom API call with the summary system prompt with progress simulation
+            summary_response = self.generate_summary_with_progress(summary_request, summary_system_prompt, estimated_generation_time)
+            
+            # Phase 5: Save summary to file (85-100%)
+            self.update_summary_progress(85, "Saving summary to file...")
             
             summary_file_path = os.path.join(self.output_dir.get(), "SummaryForRAG.txt")
             self.save_summary_file(summary_response, summary_file_path)
             
+            self.update_summary_progress(95, "Summary file saved successfully")
+            
             # Complete
-            self._update_gui(self.progress.config, {"value": 100})
-            self._update_gui(self.status_label.config, {"text": "Summary generation complete."})
+            self.update_summary_progress(100, "Summary generation complete!")
             self._update_gui(messagebox.showinfo, "Success", f"Summary saved to: {summary_file_path}")
             
         except Exception as e:
@@ -476,6 +511,72 @@ class MokuroTranslator(TkinterDnD.Tk):
             self._update_gui(self.summary_button.config, {"state": "normal"})
             self._update_gui(self.start_button.config, {"state": "normal"})
     
+    def collect_all_textboxes_with_progress(self, filepaths: list[os.PathLike]) -> list[dict]:
+        """Collect all textboxes from all HTML files with detailed progress tracking.
+        
+        Args:
+            filepaths: List of HTML file paths to process
+            
+        Returns:
+            List of dictionaries containing textbox data with page information
+        """
+        all_textboxes = []
+        global_textbox_counter = 0
+        global_page_counter = 0
+        
+        # Sort files for consistent ordering
+        sorted_filepaths = sorted(filepaths)
+        total_files = len(sorted_filepaths)
+        
+        for file_index, filepath in enumerate(sorted_filepaths):
+            try:
+                # Update progress for file processing (5-25% range)
+                file_progress = 5 + (file_index / total_files) * 20
+                filename = os.path.basename(filepath)
+                self.update_summary_progress(file_progress, f"Processing {filename} ({file_index + 1}/{total_files})")
+                
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    soup = BeautifulSoup(f, 'lxml')
+                
+                # Find all page containers
+                page_containers = soup.find_all('div', class_='pageContainer')
+                
+                for page_container in page_containers:
+                    global_page_counter += 1
+                    page_textboxes = []
+                    
+                    # Find all textboxes in this page
+                    textboxes = page_container.find_all('div', class_='textBox')
+                    
+                    for textbox in textboxes:
+                        global_textbox_counter += 1
+                        text_content = self.extract_textbox_text(textbox)
+                        
+                        if text_content.strip():  # Only include non-empty textboxes
+                            page_textboxes.append({
+                                'textbox_number': global_textbox_counter,
+                                'text': text_content.strip()
+                            })
+                    
+                    # Add page data if it has textboxes
+                    if page_textboxes:
+                        all_textboxes.append({
+                            'page_number': global_page_counter,
+                            'file_name': os.path.basename(filepath),
+                            'textboxes': page_textboxes
+                        })
+                        
+            except Exception as e:
+                logging.error(f"Failed to process file {filepath}: {e}")
+                continue
+        
+        # Final progress update for this phase
+        total_pages = len(all_textboxes)
+        total_textboxes = sum(len(page['textboxes']) for page in all_textboxes)
+        self.update_summary_progress(25, f"Collected {total_textboxes} textboxes from {total_pages} pages")
+        
+        return all_textboxes
+
     def collect_all_textboxes(self, filepaths: list[os.PathLike]) -> list[dict]:
         """Collect all textboxes from all HTML files with page grouping.
         
@@ -560,6 +661,102 @@ class MokuroTranslator(TkinterDnD.Tk):
         
         return '\n'.join(request_parts)
     
+    def generate_summary_with_progress(self, request_text: str, system_prompt: str, estimated_time: int) -> str:
+        """Generate summary with simulated progress updates during AI generation.
+        
+        Args:
+            request_text: The formatted request with all textboxes
+            system_prompt: Custom system prompt for summary generation
+            estimated_time: Estimated generation time in seconds
+            
+        Returns:
+            Generated summary text
+        """
+        import time
+        import threading
+        
+        # Store the result and completion flag
+        result = {"response": None, "error": None, "completed": False}
+        
+        def generate_in_background():
+            """Generate summary in background thread."""
+            try:
+                # Temporarily store the original system prompt
+                original_prompt = self.ollama_api.get_system_prompt()
+                
+                # Set the custom system prompt
+                self.ollama_api.current_system_prompt = system_prompt
+                
+                # Add RAG context to the summary request
+                rag_enhanced_request = self.format_request_with_rag(request_text)
+                
+                # Generate the summary
+                response = self.ollama_api.generate(
+                    self.model_name.get(),
+                    rag_enhanced_request,
+                    context_length=self.context_length.get(),
+                    temperature=self.temperature.get()
+                )
+                
+                # Restore the original system prompt
+                self.ollama_api.current_system_prompt = original_prompt
+                
+                result["response"] = response
+                result["completed"] = True
+                
+            except Exception as e:
+                # Ensure we restore the original prompt even if there's an error
+                if 'original_prompt' in locals():
+                    self.ollama_api.current_system_prompt = original_prompt
+                result["error"] = e
+                result["completed"] = True
+        
+        # Start generation in background
+        generation_thread = threading.Thread(target=generate_in_background)
+        generation_thread.start()
+        
+        # Simulate progress updates while generation is running
+        start_time = time.time()
+        progress_start = 30  # Starting progress percentage
+        progress_end = 85    # Ending progress percentage
+        
+        while not result["completed"]:
+            elapsed_time = time.time() - start_time
+            
+            # Calculate progress based on elapsed time vs estimated time
+            if estimated_time > 0:
+                time_progress = min(elapsed_time / estimated_time, 0.95)  # Cap at 95% until complete
+            else:
+                time_progress = 0.5  # Default to 50% if no estimate
+            
+            # Map time progress to our progress range (30-85%)
+            current_progress = progress_start + (time_progress * (progress_end - progress_start))
+            
+            # Calculate remaining time
+            if elapsed_time > 0 and time_progress > 0:
+                remaining_time = max(0, int((estimated_time - elapsed_time)))
+            else:
+                remaining_time = estimated_time
+            
+            # Update progress
+            self.update_summary_progress(
+                int(current_progress), 
+                "Generating summary with AI model...", 
+                remaining_time
+            )
+            
+            # Wait a bit before next update
+            time.sleep(1)
+        
+        # Wait for thread to complete
+        generation_thread.join()
+        
+        # Check for errors
+        if result["error"]:
+            raise result["error"]
+        
+        return result["response"]
+
     def generate_summary_with_custom_prompt(self, request_text: str, system_prompt: str) -> str:
         """Generate summary using a custom system prompt.
         
@@ -1427,33 +1624,88 @@ class MokuroTranslator(TkinterDnD.Tk):
     def on_rag_files_dropped(self, event):
         """Handle files dropped onto the RAG drop area."""
         try:
+            # Restore normal appearance first
+            self.restore_rag_drop_area_appearance()
+            
+            # Show processing status
+            self.show_rag_status("Processing files...", "#ffc107")
+            
             # Get the list of files from the drop event
             files = self.tk.splitlist(event.data)
             
             added_files = 0
+            rejected_files = 0
+            
             for file_path in files:
                 if self.load_rag_file(file_path):
                     added_files += 1
+                else:
+                    rejected_files += 1
             
+            # Update display and show results
             if added_files > 0:
                 self.update_rag_display()
-                messagebox.showinfo("Files Added", f"Successfully added {added_files} RAG file(s).")
+                # Show success feedback
+                success_msg = f"✓ Added {added_files} file(s)"
+                if rejected_files > 0:
+                    success_msg += f" ({rejected_files} rejected)"
+                self.show_rag_status(success_msg, "#28a745")
+                self.flash_drop_area_success()
             else:
-                messagebox.showwarning("No Files Added", "No valid text files were added.")
+                # Show error feedback
+                self.show_rag_status("✗ No valid files added", "#dc3545")
+                self.flash_drop_area_error()
+            
+            # Clear status after delay
+            self.after(3000, self.clear_rag_status)
                 
         except Exception as e:
             logging.error(f"Error handling dropped files: {e}")
-            messagebox.showerror("Error", f"Failed to process dropped files: {e}")
+            self.show_rag_status("✗ Error processing files", "#dc3545")
+            self.flash_drop_area_error()
+            self.after(3000, self.clear_rag_status)
     
     def on_rag_drag_enter(self, event):
         """Handle drag enter event for visual feedback."""
-        self.rag_drop_area.config(bg="lightblue")
-        self.rag_drop_label.config(bg="lightblue", text="Drop files here!")
+        self.rag_drop_area.config(bg="#e3f2fd", highlightbackground="#2196f3")
+        self.rag_drop_label.config(bg="#e3f2fd", text="📁 Drop files here!", fg="#1976d2")
+        self.rag_status_label.config(bg="#e3f2fd")
     
     def on_rag_drag_leave(self, event):
         """Handle drag leave event to restore normal appearance."""
-        self.rag_drop_area.config(bg="lightgray")
-        self.rag_drop_label.config(bg="lightgray", text="Drop text files here for RAG context\n(Supports .txt, .md, .json files)")
+        self.restore_rag_drop_area_appearance()
+    
+    def restore_rag_drop_area_appearance(self):
+        """Restore the normal appearance of the RAG drop area."""
+        self.rag_drop_area.config(bg="#f0f0f0", highlightbackground="#cccccc")
+        self.rag_drop_label.config(bg="#f0f0f0", 
+                                  text="📁 Drop text files here for RAG context\n(Supports .txt, .md, .json files)", 
+                                  fg="#666666")
+        self.rag_status_label.config(bg="#f0f0f0")
+    
+    def show_rag_status(self, message, color):
+        """Show a status message in the RAG drop area."""
+        self.rag_status_label.config(text=message, fg=color)
+    
+    def clear_rag_status(self):
+        """Clear the RAG status message."""
+        self.rag_status_label.config(text="")
+    
+    def flash_drop_area_success(self):
+        """Flash the drop area green to indicate success."""
+        original_bg = self.rag_drop_area.cget("bg")
+        self.rag_drop_area.config(bg="#d4edda")
+        self.rag_drop_label.config(bg="#d4edda")
+        self.rag_status_label.config(bg="#d4edda")
+        self.after(500, lambda: self.restore_rag_drop_area_appearance())
+    
+    def flash_drop_area_error(self):
+        """Flash the drop area red to indicate error."""
+        original_bg = self.rag_drop_area.cget("bg")
+        self.rag_drop_area.config(bg="#f8d7da")
+        self.rag_drop_label.config(bg="#f8d7da")
+        self.rag_status_label.config(bg="#f8d7da")
+        self.after(500, lambda: self.restore_rag_drop_area_appearance())
     
     def load_rag_file(self, file_path: str) -> bool:
         """Load a RAG file and add it to the collection.
@@ -1548,19 +1800,43 @@ class MokuroTranslator(TkinterDnD.Tk):
         # Clear listbox
         self.rag_files_listbox.delete(0, tk.END)
         
-        # Add files to listbox
+        # Add files to listbox with status indicators
         for rag_file in self.rag_files:
             size_kb = rag_file['size'] / 1024
-            display_text = f"{rag_file['name']} ({size_kb:.1f} KB)"
+            display_text = f"✓ {rag_file['name']} ({size_kb:.1f} KB)"
             self.rag_files_listbox.insert(tk.END, display_text)
         
-        # Update info label
+        # Update info label and drop area appearance based on loaded files
         if self.rag_files:
             total_size = sum(f['size'] for f in self.rag_files)
             total_size_kb = total_size / 1024
             self.rag_info_label.config(text=f"{len(self.rag_files)} files ({total_size_kb:.1f} KB)")
+            
+            # Update drop area to show RAG is active
+            self.update_drop_area_for_loaded_files()
         else:
             self.rag_info_label.config(text="No RAG files loaded")
+            # Restore default drop area appearance
+            self.restore_rag_drop_area_appearance()
+    
+    def update_drop_area_for_loaded_files(self):
+        """Update drop area appearance when RAG files are loaded."""
+        file_count = len(self.rag_files)
+        if file_count == 1:
+            status_text = "📁 RAG Active (1 file loaded)"
+        else:
+            status_text = f"📁 RAG Active ({file_count} files loaded)"
+        
+        # Update the main label to show RAG is active
+        self.rag_drop_label.config(
+            text=f"{status_text}\nDrop more files to add or use controls below",
+            fg="#2e7d32"  # Darker green to indicate active state
+        )
+        
+        # Add subtle background tint to indicate active state
+        self.rag_drop_area.config(bg="#f1f8e9", highlightbackground="#4caf50")
+        self.rag_drop_label.config(bg="#f1f8e9")
+        self.rag_status_label.config(bg="#f1f8e9")
     
     def get_rag_context(self) -> str:
         """Get formatted RAG context for inclusion in requests.
